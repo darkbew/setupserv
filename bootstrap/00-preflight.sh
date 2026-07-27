@@ -200,8 +200,13 @@ check_filesystem_and_storage() {
 
 # Verify Inode Usage
 check_inode_usage() {
-    local inode_pct=0
-    inode_pct=$(df --output=pcent -i / | tail -n1 | tr -d ' %')
+    local inode_pct=""
+    inode_pct=$(df -i / | tail -n1 | awk '{print $5}' | tr -d '%')
+
+    if [[ ! "${inode_pct}" =~ ^[0-9]+$ ]]; then
+        log_warn "Unable to determine inode usage"
+        return
+    fi
 
     if [[ "${inode_pct}" -gt 80 ]]; then
         log_warn "Inode usage: ${inode_pct}% (high — may cause issue during package extraction)"
