@@ -34,6 +34,7 @@ trap - ERR
 PASS_COUNT=0
 WARN_COUNT=0
 FAIL_COUNT=0
+SKIP_COUNT=0
 
 check_pass() {
     printf '    %s[PASS]%s %s\n' "${GREEN}" "${NC}" "$1"
@@ -48,6 +49,11 @@ check_warn() {
 check_fail() {
     printf '    %s[FAIL]%s %s\n' "${RED}" "${NC}" "$1"
     FAIL_COUNT=$((FAIL_COUNT + 1))
+}
+
+check_skip() {
+    printf '    %s[SKIP]%s %s\n' "${CYAN}" "${NC}" "$1"
+    SKIP_COUNT=$((SKIP_COUNT + 1))
 }
 
 print_section() {
@@ -402,6 +408,12 @@ verify_docker() {
 verify_tailscale() {
     print_section "TAILSCALE"
 
+    # If auth key was not configured, Tailscale installation was skipped
+    if [[ -z "${TAILSCALE_AUTHKEY:-}" ]] || [[ "${TAILSCALE_AUTHKEY:-}" == "CHANGE_ME" ]]; then
+        check_skip "Tailscale not configured"
+        return 0
+    fi
+
     # Tailscale installed
     if command -v tailscale > /dev/null 2>&1; then
         check_pass "Tailscale: installed"
@@ -433,26 +445,27 @@ verify_journald() {
 
     local config_file="/etc/systemd/journald.conf.d/99-mitseri.conf"
 
-    if [[ -f "${config_file}" ]]; then
-        # Check SystemMaxUse
-        local max_use
-        max_use=$(grep -i "^SystemMaxUse" "${config_file}" 2>/dev/null | cut -d= -f2)
-        if [[ -n "${max_use}" ]]; then
-            check_pass "SystemMaxUse: ${max_use}"
-        else
-            check_warn "SystemMaxUse: not configured"
-        fi
+    if [[ ! -f "${config_file}" ]]; then
+        check_skip "Journald config: ${config_file} not present (not yet implemented)"
+        return 0
+    fi
 
-        # Check Compress
-        local compress
-        compress=$(grep -i "^Compress" "${config_file}" 2>/dev/null | cut -d= -f2)
-        if [[ "${compress}" == "yes" ]]; then
-            check_pass "Compression: enabled"
-        else
-            check_warn "Compression: not enabled"
-        fi
+    # Check SystemMaxUse
+    local max_use
+    max_use=$(grep -i "^SystemMaxUse" "${config_file}" 2>/dev/null | cut -d= -f2)
+    if [[ -n "${max_use}" ]]; then
+        check_pass "SystemMaxUse: ${max_use}"
     else
-        check_warn "Journald config: ${config_file} not found"
+        check_warn "SystemMaxUse: not configured"
+    fi
+
+    # Check Compress
+    local compress
+    compress=$(grep -i "^Compress" "${config_file}" 2>/dev/null | cut -d= -f2)
+    if [[ "${compress}" == "yes" ]]; then
+        check_pass "Compression: enabled"
+    else
+        check_warn "Compression: not enabled"
     fi
 }
 
@@ -482,9 +495,10 @@ main() {
     # Summary
     printf '\n'
     printf '%s══════════════════════════════════════════════════════%s\n' "${BOLD}" "${NC}"
-    printf '  RESULT: %s%d PASS%s | %s%d WARN%s | %s%d FAIL%s\n' \
+    printf '  RESULT: %s%d PASS%s | %s%d WARN%s | %s%d SKIP%s | %s%d FAIL%s\n' \
         "${GREEN}" "${PASS_COUNT}" "${NC}" \
         "${YELLOW}" "${WARN_COUNT}" "${NC}" \
+        "${CYAN}" "${SKIP_COUNT}" "${NC}" \
         "${RED}" "${FAIL_COUNT}" "${NC}"
     printf '%s══════════════════════════════════════════════════════%s\n' "${BOLD}" "${NC}"
     printf '\n'

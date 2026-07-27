@@ -193,13 +193,11 @@ main() {
         load_env "${env_file}"
     fi
 
-    if [[ -z "${TAILSCALE_AUTHKEY:-}" ]]; then
-        log_warn "TAILSCALE_AUTHKEY not configured."
-        log_info "Skipping Tailscale installation."
+    if [[ -z "${TAILSCALE_AUTHKEY:-}" ]] || [[ "${TAILSCALE_AUTHKEY}" == "CHANGE_ME" ]]; then
+        log_info "Tailscale auth key not configured"
+        log_info "Skipping Tailscale installation"
         exit 0
     fi
-
-    validate_env "TAILSCALE_AUTHKEY"
 
     print_header "Tailscale Installation" "WireGuard VPN client, daemon service, and Tailnet authentication"
 

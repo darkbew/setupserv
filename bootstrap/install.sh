@@ -134,7 +134,7 @@ print_summary() {
     local docker_ver compose_ver tailscale_ip
     docker_ver=$(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',' || echo "N/A")
     compose_ver=$(docker compose version 2>/dev/null | awk '{print $NF}' || echo "N/A")
-    tailscale_ip=$(tailscale ip -4 2>/dev/null || echo "not connected")
+    tailscale_ip=$(tailscale ip -4 2>/dev/null || echo "not configured")
 
     printf '  Docker:          %s\n' "${docker_ver}"
     printf '  Docker Compose:  %s\n' "${compose_ver}"
@@ -142,7 +142,11 @@ print_summary() {
     printf '\n'
 
     printf '  %sNEXT STEPS:%s\n' "${BOLD}" "${NC}"
-    printf '  1. SSH via Tailscale: ssh %s@%s\n' "${DEPLOY_USER:-deploy}" "${tailscale_ip}"
+    if command -v tailscale > /dev/null 2>&1 && [[ "${tailscale_ip}" != "not configured" ]]; then
+        printf '  1. SSH via Tailscale: ssh %s@%s\n' "${DEPLOY_USER:-deploy}" "${tailscale_ip}"
+    else
+        printf '  1. SSH to the server and verify login\n'
+    fi
     printf '  2. Verify SSH key login works\n'
     printf '  3. Disable password auth:\n'
     printf '     sudo sed -i '\''s/^PasswordAuthentication yes$/PasswordAuthentication no/'\''\n'
