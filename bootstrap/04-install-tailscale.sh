@@ -16,7 +16,7 @@
 # Constraints:
 #   - MUST be run as root (EUID 0)
 #   - All operations MUST be idempotent
-#   - TAILSCALE_AUTHKEY MUST be defined in .env
+#   - TAILSCALE_AUTHKEY is optional (if empty, installation is skipped)
 #   - NO modification of SSH or UFW daemon (belongs to Step 05)
 #
 # Usage:
@@ -191,8 +191,15 @@ main() {
     local env_file="${PROJECT_ROOT}/.env"
     if [[ -f "${env_file}" ]]; then
         load_env "${env_file}"
-        validate_env "TAILSCALE_AUTHKEY"
     fi
+
+    if [[ -z "${TAILSCALE_AUTHKEY:-}" ]]; then
+        log_warn "TAILSCALE_AUTHKEY not configured."
+        log_info "Skipping Tailscale installation."
+        exit 0
+    fi
+
+    validate_env "TAILSCALE_AUTHKEY"
 
     print_header "Tailscale Installation" "WireGuard VPN client, daemon service, and Tailnet authentication"
 

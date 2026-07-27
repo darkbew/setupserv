@@ -308,7 +308,11 @@ check_env_file() {
 
     # Load and validate bootstrap-critical variables
     load_env "${env_file}"
-    validate_env "TAILSCALE_AUTHKEY"
+    if [[ -n "${TAILSCALE_AUTHKEY:-}" ]]; then
+        validate_env "TAILSCALE_AUTHKEY"
+    else
+        log_warn "TAILSCALE_AUTHKEY not configured. Tailscale installation will be skipped."
+    fi
 
     log_success "Critical variables validated"
 }
