@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Mitseri Platform — Preflight Check
+# Server Bootstrap Framework — Preflight Check
 # ==============================================================================
 #
 # Description:
@@ -10,10 +10,11 @@
 # Checks:
 #   - Root privileges & Ubuntu LTS version
 #   - Base system utilities & port availability
-#   - CPU architecture & CPU cores
+#   - CPU architecture (x86_64, amd64, aarch64, arm64) & CPU cores
 #   - RAM & SWAP configuration
 #   - Disk space, filesystem type, SSD detection, inode usage, mount options
 #   - Virtualization environment & pending reboot status
+#   - Security modules (AppArmor/SELinux) & Time synchronization (NTP)
 #   - Internet connectivity & DNS resolution (POSIX/native resolver)
 #   - Environment file & critical variables
 #
@@ -54,21 +55,25 @@ check_required_tools() {
     log_success "Base system utilities: OK"
 }
 
-# Verify CPU Architecture (x86_64 required)
+# Verify CPU Architecture (x86_64, amd64, aarch64, arm64 supported)
 check_architecture() {
     local arch
     arch=$(uname -m)
 
-    if [[ "${arch}" != "x86_64" ]]; then
-        log_error "Unsupported architecture: ${arch}. Only x86_64 is supported."
-        exit 1
-    fi
-
-    log_success "Architecture: ${arch}"
+    case "${arch}" in
+        x86_64|amd64|aarch64|arm64)
+            log_success "Architecture: ${arch}"
+            ;;
+        *)
+            log_error "Unsupported architecture: ${arch}. Supported: x86_64, amd64, aarch64, arm64."
+            exit 1
+            ;;
+    esac
 }
 
-# Verify CPU Cores (Minimum 2 vCPUs recommended)
+# Verify CPU Cores
 check_cpu_cores() {
+    local min_cores="${PREFLIGHT_MIN_CPU_CORES:-${DEFAULT_MIN_CPU_CORES:-2}}"
     local cores=0
 
     if command -v nproc &>/dev/null; then
@@ -80,15 +85,17 @@ check_cpu_cores() {
     if [[ "${cores}" -lt 1 ]]; then
         log_error "Could not detect CPU cores."
         exit 1
-    elif [[ "${cores}" -lt 2 ]]; then
-        log_warn "CPU Cores: ${cores} (minimum 2 vCPUs recommended for Frappe/ERPNext)"
+    elif [[ "${cores}" -lt "${min_cores}" ]]; then
+        log_warn "CPU Cores: ${cores} (minimum ${min_cores} vCPUs recommended for production workloads)"
     else
         log_success "CPU Cores: ${cores}"
     fi
 }
 
-# Verify RAM Capacity (Minimum 8GB required)
+# Verify RAM Capacity
 check_ram() {
+    local min_ram_mb="${PREFLIGHT_MIN_RAM_MB:-${DEFAULT_MIN_RAM_MB:-2048}}"
+    local rec_ram_mb="${PREFLIGHT_REC_RAM_MB:-${DEFAULT_REC_RAM_MB:-8192}}"
     local total_kb=0
     local total_mb=0
     local total_gb=0
@@ -102,11 +109,11 @@ check_ram() {
         exit 1
     fi
 
-    if [[ "${total_mb}" -lt "${MITSERI_MIN_RAM_MB}" ]]; then
-        log_error "Insufficient RAM: ${total_gb}GB (minimum ${MITSERI_MIN_RAM_MB}MB required)"
+    if [[ "${total_mb}" -lt "${min_ram_mb}" ]]; then
+        log_error "Insufficient RAM: ${total_gb}GB (minimum ${min_ram_mb}MB required)"
         exit 1
-    elif [[ "${total_mb}" -lt "${MITSERI_REC_RAM_MB}" ]]; then
-        log_warn "RAM: ${total_gb}GB (recommended 16GB+ for production workloads)"
+    elif [[ "${total_mb}" -lt "${rec_ram_mb}" ]]; then
+        log_warn "RAM: ${total_gb}GB (recommended $((rec_ram_mb / 1024))GB+ for production workloads)"
     else
         log_success "RAM: ${total_gb}GB"
     fi
@@ -114,6 +121,7 @@ check_ram() {
 
 # Verify SWAP Configuration
 check_swap() {
+    local min_swap_mb="${PREFLIGHT_MIN_SWAP_MB:-${DEFAULT_MIN_SWAP_MB:-2048}}"
     local swap_kb=0
     local swap_gb=0
 
@@ -123,14 +131,16 @@ check_swap() {
     fi
 
     if [[ "${swap_kb}" -eq 0 ]]; then
-        log_warn "SWAP: None configured (SWAP 2GB+ recommended to prevent OOM during asset builds)"
+        log_warn "SWAP: None configured (SWAP $((min_swap_mb / 1024))GB+ recommended to prevent OOM during heavy application builds)"
     else
         log_success "SWAP: ${swap_gb}GB"
     fi
 }
 
-# Verify Disk Space (Minimum 50GB free required)
+# Verify Disk Space
 check_disk_space() {
+    local min_disk_gb="${PREFLIGHT_MIN_DISK_GB:-${DEFAULT_MIN_DISK_GB:-20}}"
+    local warn_disk_gb="${PREFLIGHT_WARN_DISK_GB:-${DEFAULT_WARN_DISK_GB:-50}}"
     local free_kb=0
     local free_gb=0
 
@@ -138,11 +148,11 @@ check_disk_space() {
     free_kb=$(df --output=avail / | tail -n1 | tr -d ' ')
     free_gb=$((free_kb / 1024 / 1024))
 
-    if [[ "${free_gb}" -lt "${MITSERI_MIN_DISK_GB}" ]]; then
-        log_error "Insufficient disk space: ${free_gb}GB free (minimum ${MITSERI_MIN_DISK_GB}GB required)"
+    if [[ "${free_gb}" -lt "${min_disk_gb}" ]]; then
+        log_error "Insufficient disk space: ${free_gb}GB free (minimum ${min_disk_gb}GB required)"
         exit 1
-    elif [[ "${free_gb}" -lt "${MITSERI_WARN_DISK_GB}" ]]; then
-        log_warn "Disk space: ${free_gb}GB free (recommended ${MITSERI_WARN_DISK_GB}GB+)"
+    elif [[ "${free_gb}" -lt "${warn_disk_gb}" ]]; then
+        log_warn "Disk space: ${free_gb}GB free (recommended ${warn_disk_gb}GB+)"
     else
         log_success "Disk space: ${free_gb}GB free"
     fi
@@ -156,9 +166,7 @@ check_filesystem_and_storage() {
     local root_source=""
 
     root_info=$(findmnt -n -o FSTYPE,OPTIONS,SOURCE / 2>/dev/null || true)
-    fs_type=$(echo "${root_info}" | awk '{print $1}')
-    mount_opts=$(echo "${root_info}" | awk '{print $2}')
-    root_source=$(echo "${root_info}" | awk '{print $3}')
+    read -r fs_type mount_opts root_source <<< "${root_info}"
 
     # Filesystem check
     case "${fs_type}" in
@@ -183,7 +191,7 @@ check_filesystem_and_storage() {
                 log_success "Disk type: SSD (${disk_name})"
             fi
         else
-            log_warn "Disk type: HDD (${disk_name}) — SSD/NVMe strongly recommended for production DB"
+            log_warn "Disk type: HDD (${disk_name}) — SSD/NVMe strongly recommended for database performance"
         fi
     else
         log_info "Disk type: could not detect block device queue"
@@ -213,6 +221,26 @@ check_inode_usage() {
     else
         log_success "Inode usage: ${inode_pct}%"
     fi
+}
+
+# Inspect Linux Security Modules (AppArmor / SELinux)
+check_security_modules() {
+    local apparmor_status="disabled/absent"
+    local selinux_status="disabled/absent"
+
+    if command -v aa-status &>/dev/null; then
+        if aa-status --enabled 2>/dev/null; then
+            apparmor_status="enabled"
+        fi
+    elif [[ -d /sys/kernel/security/apparmor ]]; then
+        apparmor_status="present"
+    fi
+
+    if command -v getenforce &>/dev/null; then
+        selinux_status=$(getenforce 2>/dev/null || echo "disabled")
+    fi
+
+    log_info "Security Modules — AppArmor: ${apparmor_status}, SELinux: ${selinux_status}"
 }
 
 # Detect Virtualization Environment
@@ -246,13 +274,38 @@ check_pending_reboot() {
     fi
 }
 
-# Check for Port Conflicts (80, 443)
+# Verify System Time Synchronization (NTP & RTC)
+check_time_sync() {
+    local ntp_sync="unknown"
+    local tz="unknown"
+
+    if command -v timedatectl &>/dev/null; then
+        ntp_sync=$(timedatectl show --property=NTPSynchronized --value 2>/dev/null || echo "no")
+        tz=$(timedatectl show --property=Timezone --value 2>/dev/null || echo "unknown")
+
+        if [[ "${ntp_sync}" == "yes" ]]; then
+            log_success "Time synchronization (NTP): Active (${tz})"
+        else
+            log_warn "Time synchronization (NTP): Not synchronized (current timezone: ${tz})"
+        fi
+    else
+        log_warn "timedatectl not available — skipping time synchronization check"
+    fi
+}
+
+# Check for Port Conflicts
 check_port_conflicts() {
     local conflict=0
     local port
+    local ports=()
 
-    # Ports to check: 80 (HTTP), 443 (HTTPS)
-    for port in 80 443; do
+    if [[ -n "${PREFLIGHT_PORTS:-}" ]]; then
+        read -r -a ports <<< "${PREFLIGHT_PORTS}"
+    else
+        ports=(80 443)
+    fi
+
+    for port in "${ports[@]}"; do
         if ss -tuln 2>/dev/null | grep -q ":${port} "; then
             log_warn "Host port ${port} is currently in use by an existing process."
             conflict=$((conflict + 1))
@@ -260,9 +313,9 @@ check_port_conflicts() {
     done
 
     if [[ "${conflict}" -gt 0 ]]; then
-        log_warn "Port conflicts detected — ensure no webservers (apache2/nginx) interfere with Traefik later."
+        log_warn "Port conflicts detected — ensure no conflicting webservers interfere with reverse proxy services later."
     else
-        log_success "Port availability (80, 443): Clean"
+        log_success "Port availability (${ports[*]}): Clean"
     fi
 }
 
@@ -293,28 +346,21 @@ check_dns() {
     exit 1
 }
 
-# Verify Environment File and Critical Secrets
+# Verify Environment File and Critical Variables
 check_env_file() {
     local env_file="${PROJECT_ROOT}/.env"
 
     if [[ ! -f "${env_file}" ]]; then
-        log_error "File not found: ${env_file}"
-        log_error "Run: cp ${PROJECT_ROOT}/.env.example ${env_file}"
-        log_error "Then edit ${env_file} and set all required values."
-        exit 1
+        log_warn "Environment file not found at ${env_file} (skipping environment variable checks)"
+        return 0
     fi
 
     log_success "Environment file: ${env_file}"
 
-    # Load and validate bootstrap-critical variables
+    # Load environment variables
     load_env "${env_file}"
-    if [[ -n "${TAILSCALE_AUTHKEY:-}" ]] && [[ "${TAILSCALE_AUTHKEY}" != "CHANGE_ME" ]]; then
-        validate_env "TAILSCALE_AUTHKEY"
-    else
-        log_warn "TAILSCALE_AUTHKEY not configured. Tailscale installation will be skipped."
-    fi
 
-    log_success "Critical variables validated"
+    log_success "Environment file loaded and validated"
 }
 
 # ==============================================================================
@@ -329,8 +375,10 @@ main() {
     check_required_tools
     check_os
     check_architecture
+    check_security_modules
     check_virtualization
     check_pending_reboot
+    check_time_sync
 
     log_section "Hardware & Resources"
     check_cpu_cores

@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Mitseri Platform — Bootstrap Verification
+# Server Bootstrap Framework — Bootstrap Verification
 # ==============================================================================
 #
-# Comprehensive post-bootstrap validation.
-# Checks every component installed by Milestone 1 bootstrap scripts.
+# Description:
+#   Comprehensive post-bootstrap validation.
+#   Checks every component installed by bootstrap framework scripts (00–05).
 #
-# Output: PASS / WARN / FAIL for each check
+# Output: PASS / WARN / FAIL / SKIP for each check
 # Exit:   0 if no FAILs, 1 if any FAIL
 #
-# This script does NOT modify the system.
+# This script is READ-ONLY — it does NOT modify the system.
 #
 # Usage:
 #   sudo bash bootstrap/06-verify.sh
@@ -73,19 +74,20 @@ verify_system() {
         source /etc/os-release
         if [[ "${ID:-}" == "ubuntu" ]]; then
             local supported=false
+            local v
             for v in "22.04" "24.04"; do
                 [[ "${VERSION_ID:-}" == "${v}" ]] && supported=true
             done
             if [[ "${supported}" == "true" ]]; then
                 check_pass "Ubuntu ${VERSION_ID} LTS (${VERSION_CODENAME:-})"
             else
-                check_fail "Ubuntu ${VERSION_ID:-unknown} — not LTS"
+                check_fail "Ubuntu ${VERSION_ID:-unknown} — not supported LTS"
             fi
         else
             check_fail "OS: ${ID:-unknown} — Ubuntu required"
         fi
     else
-        check_fail "Cannot detect OS"
+        check_fail "Cannot detect OS (/etc/os-release missing)"
     fi
 
     # Kernel
@@ -93,61 +95,74 @@ verify_system() {
     kernel=$(uname -r)
     check_pass "Kernel: ${kernel}"
 
-    # Architecture
+    # Architecture (x86_64, amd64, aarch64, arm64)
     local arch
     arch=$(uname -m)
-    if [[ "${arch}" == "x86_64" ]]; then
-        check_pass "Architecture: ${arch}"
-    else
-        check_fail "Architecture: ${arch} (x86_64 required)"
-    fi
+    case "${arch}" in
+        x86_64|amd64|aarch64|arm64)
+            check_pass "Architecture: ${arch}"
+            ;;
+        *)
+            check_fail "Architecture: ${arch} (supported: x86_64, amd64, aarch64, arm64)"
+            ;;
+    esac
 
     # Timezone
-    local tz_expected="${TZ:-Asia/Jakarta}"
+    local tz_expected="${TZ:-${SYSTEM_TIMEZONE:-UTC}}"
     local tz_current
     tz_current=$(timedatectl show --property=Timezone --value 2>/dev/null || echo "unknown")
     if [[ "${tz_current}" == "${tz_expected}" ]]; then
         check_pass "Timezone: ${tz_current}"
     else
-        check_fail "Timezone: ${tz_current} (expected ${tz_expected})"
+        check_warn "Timezone: ${tz_current} (expected ${tz_expected})"
     fi
 
     # Locale
-    local lang
-    lang=$(locale 2>/dev/null | grep "^LANG=" | cut -d= -f2)
-    if [[ "${lang}" == "en_US.UTF-8" ]]; then
+    local lang_expected="${LOCALE:-${SYSTEM_LOCALE:-en_US.UTF-8}}"
+    local lang=""
+    local locale_out
+    locale_out=$(locale 2>/dev/null || true)
+    if [[ "${locale_out}" =~ LANG=([^[:space:]]+) ]]; then
+        lang="${BASH_REMATCH[1]}"
+    fi
+
+    if [[ "${lang}" == "${lang_expected}" ]]; then
         check_pass "Locale: ${lang}"
     else
-        check_warn "Locale: ${lang:-not set} (expected en_US.UTF-8)"
+        check_warn "Locale: ${lang:-not set} (expected ${lang_expected})"
     fi
 }
 
 verify_hardware() {
     print_section "HARDWARE"
 
+    local min_ram_mb="${PREFLIGHT_MIN_RAM_MB:-${DEFAULT_MIN_RAM_MB:-2048}}"
+    local min_disk_gb="${PREFLIGHT_MIN_DISK_GB:-${DEFAULT_MIN_DISK_GB:-20}}"
+
     # Memory
     local mem_kb
-    mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-    local mem_gb=$((mem_kb / 1024 / 1024))
-    if [[ $((mem_kb / 1024)) -ge 8192 ]]; then
+    mem_kb=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}')
+    local mem_mb=$((mem_kb / 1024))
+    local mem_gb=$((mem_mb / 1024))
+    if [[ "${mem_mb}" -ge "${min_ram_mb}" ]]; then
         check_pass "Memory: ${mem_gb}GB"
     else
-        check_fail "Memory: ${mem_gb}GB (minimum 8GB)"
+        check_fail "Memory: ${mem_gb}GB (minimum ${min_ram_mb}MB required)"
     fi
 
     # Disk space
     local free_kb free_gb
-    free_kb=$(df --output=avail / | tail -n1 | tr -d ' ')
+    free_kb=$(df --output=avail / 2>/dev/null | tail -n1 | tr -d ' ')
     free_gb=$((free_kb / 1024 / 1024))
-    if [[ "${free_gb}" -ge 50 ]]; then
+    if [[ "${free_gb}" -ge "${min_disk_gb}" ]]; then
         check_pass "Disk free: ${free_gb}GB"
     else
-        check_fail "Disk free: ${free_gb}GB (minimum 50GB)"
+        check_fail "Disk free: ${free_gb}GB (minimum ${min_disk_gb}GB required)"
     fi
 
     # Filesystem
     local fs_type
-    fs_type=$(findmnt -n -o FSTYPE /)
+    fs_type=$(findmnt -n -o FSTYPE / 2>/dev/null || echo "unknown")
     if [[ "${fs_type}" == "ext4" ]] || [[ "${fs_type}" == "xfs" ]]; then
         check_pass "Filesystem: ${fs_type}"
     else
@@ -156,12 +171,12 @@ verify_hardware() {
 
     # SSD detection
     local root_src disk_name rotational
-    root_src=$(findmnt -n -o SOURCE /)
-    disk_name=$(lsblk -nd -o PKNAME "${root_src}" 2>/dev/null) || true
+    root_src=$(findmnt -n -o SOURCE / 2>/dev/null || echo "")
+    disk_name=$(lsblk -nd -o PKNAME "${root_src}" 2>/dev/null || true)
     if [[ -n "${disk_name}" ]] && [[ -f "/sys/block/${disk_name}/queue/rotational" ]]; then
-        rotational=$(cat "/sys/block/${disk_name}/queue/rotational")
+        rotational=$(cat "/sys/block/${disk_name}/queue/rotational" 2>/dev/null || echo "1")
         if [[ "${rotational}" == "0" ]]; then
-            check_pass "Disk type: SSD (${disk_name})"
+            check_pass "Disk type: SSD/NVMe (${disk_name})"
         else
             check_warn "Disk type: HDD (${disk_name})"
         fi
@@ -171,7 +186,7 @@ verify_hardware() {
 
     # Swap
     local swap_total
-    swap_total=$(grep SwapTotal /proc/meminfo | awk '{print $2}')
+    swap_total=$(grep SwapTotal /proc/meminfo 2>/dev/null | awk '{print $2}')
     local swappiness
     swappiness=$(sysctl -n vm.swappiness 2>/dev/null || echo "?")
     if [[ "${swap_total}" -gt 0 ]]; then
@@ -185,11 +200,11 @@ verify_hardware() {
 verify_time() {
     print_section "TIME SYNCHRONIZATION"
 
-    # timesyncd service
+    # systemd-timesyncd service
     if systemctl is-active systemd-timesyncd > /dev/null 2>&1; then
         check_pass "systemd-timesyncd: active"
     else
-        check_fail "systemd-timesyncd: not running"
+        check_warn "systemd-timesyncd: not active (checking alternative NTP service)"
     fi
 
     # NTP sync status
@@ -254,9 +269,10 @@ verify_security() {
     fi
 
     # SSH PermitRootLogin
+    local ssh_config="/etc/ssh/sshd_config.d/99-bootstrap-hardening.conf"
     local root_login="yes"
-    if [[ -f /etc/ssh/sshd_config.d/99-mitseri-hardening.conf ]]; then
-        root_login=$(grep -i "^PermitRootLogin" /etc/ssh/sshd_config.d/99-mitseri-hardening.conf 2>/dev/null | awk '{print $2}')
+    if [[ -f "${ssh_config}" ]]; then
+        root_login=$(grep -i "^PermitRootLogin" "${ssh_config}" 2>/dev/null | awk '{print $2}')
     fi
     if [[ "${root_login}" == "no" ]]; then
         check_pass "SSH PermitRootLogin: no"
@@ -264,23 +280,25 @@ verify_security() {
         check_fail "SSH PermitRootLogin: ${root_login:-not set}"
     fi
 
-    # SSH PasswordAuthentication (Phase 1 = yes is expected)
+    # SSH PasswordAuthentication
     local pwd_auth="not set"
-    if [[ -f /etc/ssh/sshd_config.d/99-mitseri-hardening.conf ]]; then
-        pwd_auth=$(grep -i "^PasswordAuthentication" /etc/ssh/sshd_config.d/99-mitseri-hardening.conf 2>/dev/null | awk '{print $2}')
+    if [[ -f "${ssh_config}" ]]; then
+        pwd_auth=$(grep -i "^PasswordAuthentication" "${ssh_config}" 2>/dev/null | awk '{print $2}')
     fi
     if [[ "${pwd_auth}" == "no" ]]; then
         check_pass "SSH PasswordAuthentication: no"
     elif [[ "${pwd_auth}" == "yes" ]]; then
-        check_warn "SSH PasswordAuthentication: yes (Phase 2 pending)"
+        check_warn "SSH PasswordAuthentication: yes (Phase 1 active)"
     else
         check_fail "SSH PasswordAuthentication: ${pwd_auth}"
     fi
 
     # SSH AllowUsers
-    local allow_users
-    allow_users=$(grep -i "^AllowUsers" /etc/ssh/sshd_config.d/99-mitseri-hardening.conf 2>/dev/null | awk '{print $2}') || true
-    local deploy_user="${DEPLOY_USER:-deploy}"
+    local allow_users=""
+    if [[ -f "${ssh_config}" ]]; then
+        allow_users=$(grep -i "^AllowUsers" "${ssh_config}" 2>/dev/null | awk '{print $2}') || true
+    fi
+    local deploy_user="${DEPLOY_USER:-${OPERATIONAL_USER:-deploy}}"
     if [[ "${allow_users}" == "${deploy_user}" ]]; then
         check_pass "SSH AllowUsers: ${allow_users}"
     else
@@ -307,7 +325,7 @@ verify_security() {
 verify_user() {
     print_section "DEPLOY USER"
 
-    local deploy_user="${DEPLOY_USER:-deploy}"
+    local deploy_user="${DEPLOY_USER:-${OPERATIONAL_USER:-deploy}}"
 
     # User exists
     if id "${deploy_user}" > /dev/null 2>&1; then
@@ -378,30 +396,41 @@ verify_docker() {
     fi
 
     # Log driver
+    local expected_log_driver="${DOCKER_LOG_DRIVER:-json-file}"
     local log_driver
     log_driver=$(docker info --format '{{.LoggingDriver}}' 2>/dev/null)
-    if [[ "${log_driver}" == "json-file" ]]; then
+    if [[ "${log_driver}" == "${expected_log_driver}" ]]; then
         check_pass "Log driver: ${log_driver}"
     else
-        check_warn "Log driver: ${log_driver} (expected json-file)"
+        check_warn "Log driver: ${log_driver} (expected ${expected_log_driver})"
     fi
 
     # Live restore
+    local expected_live_restore="${DOCKER_LIVE_RESTORE:-true}"
     local live_restore
     live_restore=$(docker info --format '{{.LiveRestoreEnabled}}' 2>/dev/null)
-    if [[ "${live_restore}" == "true" ]]; then
-        check_pass "Live restore: enabled"
+    if [[ "${live_restore}" == "${expected_live_restore}" ]]; then
+        check_pass "Live restore: ${live_restore}"
     else
-        check_warn "Live restore: disabled"
+        check_warn "Live restore: ${live_restore} (expected ${expected_live_restore})"
     fi
 
     # Storage driver
+    local expected_storage_driver="${DOCKER_STORAGE_DRIVER:-overlay2}"
     local storage_driver
     storage_driver=$(docker info --format '{{.Driver}}' 2>/dev/null)
-    if [[ "${storage_driver}" == "overlay2" ]]; then
+    if [[ "${storage_driver}" == "${expected_storage_driver}" ]]; then
         check_pass "Storage driver: ${storage_driver}"
     else
-        check_warn "Storage driver: ${storage_driver} (expected overlay2)"
+        check_warn "Storage driver: ${storage_driver} (expected ${expected_storage_driver})"
+    fi
+
+    # Docker bridge network
+    local network_name="${DOCKER_NETWORK_NAME:-${DEFAULT_DOCKER_NETWORK:-bootstrap-net}}"
+    if docker network inspect "${network_name}" >/dev/null 2>&1; then
+        check_pass "Bridge network: ${network_name} (active)"
+    else
+        check_warn "Bridge network: ${network_name} (not found)"
     fi
 }
 
@@ -443,10 +472,10 @@ verify_tailscale() {
 verify_journald() {
     print_section "JOURNALD"
 
-    local config_file="/etc/systemd/journald.conf.d/99-mitseri.conf"
+    local config_file="/etc/systemd/journald.conf.d/99-bootstrap.conf"
 
     if [[ ! -f "${config_file}" ]]; then
-        check_skip "Journald config: ${config_file} not present (not yet implemented)"
+        check_warn "Journald config: ${config_file} not present"
         return 0
     fi
 
@@ -475,11 +504,16 @@ verify_journald() {
 
 main() {
     check_root
-    load_env "${PROJECT_ROOT}/.env"
+
+    # Load environment file if present
+    local env_file="${PROJECT_ROOT}/.env"
+    if [[ -f "${env_file}" ]]; then
+        load_env "${env_file}"
+    fi
 
     printf '\n'
     printf '%s══════════════════════════════════════════════════════%s\n' "${BOLD}" "${NC}"
-    printf '%s  MITSERI PLATFORM — BOOTSTRAP VERIFICATION         %s\n' "${BOLD}" "${NC}"
+    printf '%s  SERVER BOOTSTRAP FRAMEWORK — BOOTSTRAP VERIFICATION %s\n' "${BOLD}" "${NC}"
     printf '%s══════════════════════════════════════════════════════%s\n' "${BOLD}" "${NC}"
 
     verify_system

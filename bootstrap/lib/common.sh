@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Mitseri Platform — Enterprise Shared Library Framework
+# Server Bootstrap Framework — Enterprise Shared Library Framework
 # ==============================================================================
 #
 # Description:
@@ -43,19 +43,19 @@ set -Eeuo pipefail
 # 3. GLOBAL CONSTANTS
 # ------------------------------------------------------------------------------
 
-readonly MITSERI_VERSION="0.1.0"
-readonly MITSERI_NAME="Mitseri Platform"
+readonly FRAMEWORK_VERSION="0.1.0"
+readonly FRAMEWORK_NAME="Server Bootstrap Framework"
 
 # Hardware thresholds
 # shellcheck disable=SC2034
-readonly MITSERI_MIN_RAM_MB=8192
+readonly DEFAULT_MIN_RAM_MB=2048
 # shellcheck disable=SC2034
-readonly MITSERI_REC_RAM_MB=16384
+readonly DEFAULT_REC_RAM_MB=8192
 # shellcheck disable=SC2034
-readonly MITSERI_MIN_DISK_GB=50
+readonly DEFAULT_MIN_DISK_GB=20
 # shellcheck disable=SC2034
-readonly MITSERI_WARN_DISK_GB=100
-readonly MITSERI_SUPPORTED_OS=("22.04" "24.04")
+readonly DEFAULT_WARN_DISK_GB=50
+readonly FRAMEWORK_SUPPORTED_OS=("22.04" "24.04")
 
 # ------------------------------------------------------------------------------
 # 4. TERMINAL COLORS (ANSI-C Quoting)
@@ -84,7 +84,7 @@ fi
 # ------------------------------------------------------------------------------
 
 DRY_RUN="${DRY_RUN:-false}"
-LOG_DIR="${LOG_DIR:-/var/log/mitseri}"
+LOG_DIR="${LOG_DIR:-/var/log/bootstrap-framework}"
 
 if [[ -z "${LOG_FILE:-}" ]]; then
     _log_timestamp=$(date +%Y%m%d-%H%M%S)
@@ -152,7 +152,7 @@ print_header() {
     local description="${2:-}"
     printf '\n'
     printf '%s──────────────────────────────────────────────────────%s\n' "${BOLD}" "${NC}"
-    printf '%s  %s v%s%s\n' "${BOLD}" "${MITSERI_NAME}" "${MITSERI_VERSION}" "${NC}"
+    printf '%s  %s v%s%s\n' "${BOLD}" "${FRAMEWORK_NAME}" "${FRAMEWORK_VERSION}" "${NC}"
     printf '%s  %s%s\n' "${BOLD}" "${script_name}" "${NC}"
     if [[ -n "${description}" ]]; then
         printf '  %s\n' "${description}"
@@ -231,7 +231,7 @@ check_os() {
 
     local version_supported=false
     local supported
-    for supported in "${MITSERI_SUPPORTED_OS[@]}"; do
+    for supported in "${FRAMEWORK_SUPPORTED_OS[@]}"; do
         if [[ "${VERSION_ID:-}" == "${supported}" ]]; then
             version_supported=true
             break
@@ -240,7 +240,7 @@ check_os() {
 
     if [[ "${version_supported}" != "true" ]]; then
         log_error "Unsupported Ubuntu version: ${VERSION_ID:-unknown}"
-        log_error "Supported: ${MITSERI_SUPPORTED_OS[*]}"
+        log_error "Supported: ${FRAMEWORK_SUPPORTED_OS[*]}"
         exit 1
     fi
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Mitseri Platform — System Update & Base Essentials
+# Server Bootstrap Framework — System Update & Base Essentials
 # ==============================================================================
 #
 # Description:
-#   Updates the Operating System package repository index, performs safe system
+#   Updates Operating System package repository index, performs safe system
 #   upgrades, installs essential base tools, configures Locale and Timezone,
-#   and cleans up APT caches.
+#   enables SSD TRIM maintenance, and cleans up APT caches.
 #
 # Constraints:
 #   - MUST be run as root (EUID 0)
@@ -16,9 +16,6 @@
 #
 # Usage:
 #   sudo bash bootstrap/01-system-update.sh
-#
-# System Requirements:
-#   Ubuntu Server 24.04 LTS (Noble Numbat) — Bash 5.2+
 #
 # ==============================================================================
 
@@ -30,10 +27,10 @@ PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 # ==============================================================================
-# ESSENTIAL PACKAGES DEFINITION (48 PACKAGES)
+# ESSENTIAL PACKAGES DEFINITION
 # ==============================================================================
 
-readonly BASE_PACKAGES=(
+readonly DEFAULT_BASE_PACKAGES=(
     # Package Management & SSL Integrity
     "curl"
     "wget"
@@ -43,7 +40,7 @@ readonly BASE_PACKAGES=(
     "lsb-release"
     "software-properties-common"
     "apt-transport-https"
-    
+
     # Text Processing & Data Format Tools
     "jq"
     "unzip"
@@ -52,19 +49,19 @@ readonly BASE_PACKAGES=(
     "gzip"
     "xz-utils"
     "rsync"
-    
+
     # Text Editors & Basic Tools
     "nano"
     "vim"
     "htop"
     "tree"
-    
+
     # Network Inspection Tools
     "net-tools"
     "iproute2"
     "dnsutils"
     "openssl"
-    
+
     # System Administration & Access Control
     "acl"
     "sudo"
@@ -72,8 +69,8 @@ readonly BASE_PACKAGES=(
     "cron"
     "logrotate"
     "bash-completion"
-    
-    # Build Essentials & Compilers (Needed for native extensions)
+
+    # Build Essentials & Compilers
     "build-essential"
     "make"
     "gcc"
@@ -81,16 +78,16 @@ readonly BASE_PACKAGES=(
     "pkg-config"
     "libffi-dev"
     "libssl-dev"
-    
+
     # Python Baseline
     "python3"
     "python3-pip"
     "python3-venv"
-    
+
     # System Localization & Timezone
     "locales"
     "tzdata"
-    
+
     # System Utilities & Diagnostics
     "uuid-runtime"
     "lsof"
@@ -116,8 +113,11 @@ perform_apt_upgrade() {
         return 0
     fi
 
-    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -q > /dev/null 2>&1
-    log_success "System packages successfully upgraded"
+    if DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get upgrade -y -q > /dev/null 2>&1; then
+        log_success "System packages successfully upgraded"
+    else
+        log_warn "APT package upgrade completed with non-zero status — check APT logs if issues occur"
+    fi
 }
 
 # Install essential base packages one-by-one idempotently
@@ -125,10 +125,18 @@ install_essential_packages() {
     local pkg
     local installed_count=0
     local skipped_count=0
+    local all_packages=("${DEFAULT_BASE_PACKAGES[@]}")
 
-    log_info "Installing ${#BASE_PACKAGES[@]} essential base packages..."
+    # Allow custom packages via EXTRA_BASE_PACKAGES variable
+    if [[ -n "${EXTRA_BASE_PACKAGES:-}" ]]; then
+        local extra_pkgs=()
+        read -r -a extra_pkgs <<< "${EXTRA_BASE_PACKAGES}"
+        all_packages+=("${extra_pkgs[@]}")
+    fi
 
-    for pkg in "${BASE_PACKAGES[@]}"; do
+    log_info "Installing ${#all_packages[@]} essential base packages..."
+
+    for pkg in "${all_packages[@]}"; do
         if is_installed "${pkg}"; then
             skipped_count=$((skipped_count + 1))
         else
@@ -140,13 +148,15 @@ install_essential_packages() {
     log_success "Base packages ready (${installed_count} newly installed, ${skipped_count} skipped/already present)"
 }
 
-# Configure System Locale idempotently (en_US.UTF-8)
+# Configure System Locale idempotently
 configure_locale() {
-    local target_locale="en_US.UTF-8"
+    local target_locale="${LOCALE:-${SYSTEM_LOCALE:-en_US.UTF-8}}"
 
     log_info "Checking system locale configuration..."
 
-    if locale 2>/dev/null | grep -q "LANG=${target_locale}"; then
+    local current_lang=""
+    current_lang=$(locale 2>/dev/null | grep "^LANG=" || echo "")
+    if [[ "${current_lang}" == "LANG=${target_locale}" ]]; then
         log_info "Locale already set to ${target_locale}"
         return 0
     fi
@@ -164,7 +174,7 @@ configure_locale() {
 
 # Configure System Timezone idempotently
 configure_timezone() {
-    local target_tz="${TZ:-Asia/Jakarta}"
+    local target_tz="${TZ:-${SYSTEM_TIMEZONE:-UTC}}"
 
     log_info "Configuring system timezone..."
 
@@ -193,6 +203,18 @@ configure_timezone() {
     fi
 }
 
+# Enable SSD TRIM timer for storage optimization
+configure_ssd_trim() {
+    log_info "Configuring SSD TRIM maintenance timer..."
+
+    if systemctl list-unit-files fstrim.timer &>/dev/null; then
+        service_enable "fstrim.timer"
+        log_success "SSD TRIM maintenance timer enabled"
+    else
+        log_info "fstrim.timer unit not present — skipping SSD TRIM configuration"
+    fi
+}
+
 # Clean up unused packages and APT cache
 cleanup_apt_cache() {
     log_info "Cleaning up unused packages and APT cache..."
@@ -214,7 +236,7 @@ print_summary_report() {
     local os_version="Unknown"
     local kernel_version="Unknown"
     local current_tz="Unknown"
-    local current_lang="Unknown"
+    local current_lang="en_US.UTF-8"
 
     if [[ -f /etc/os-release ]]; then
         # shellcheck source=/dev/null
@@ -224,7 +246,12 @@ print_summary_report() {
 
     kernel_version=$(uname -r)
     current_tz=$(timedatectl show --property=Timezone --value 2>/dev/null || echo "UTC")
-    current_lang=$(locale 2>/dev/null | grep "^LANG=" | cut -d= -f2 || echo "en_US.UTF-8")
+
+    local locale_out
+    locale_out=$(locale 2>/dev/null || true)
+    if [[ "${locale_out}" =~ LANG=([^[:space:]]+) ]]; then
+        current_lang="${BASH_REMATCH[1]}"
+    fi
 
     log_section "SYSTEM UPDATE SUMMARY"
     printf '  OS Release:      %s\n' "${os_version}"
@@ -247,10 +274,9 @@ main() {
     local env_file="${PROJECT_ROOT}/.env"
     if [[ -f "${env_file}" ]]; then
         load_env "${env_file}"
-        validate_env "TZ"
     fi
 
-    print_header "System Update & Essentials" "APT repository upgrade, base packages, locale, timezone"
+    print_header "System Update & Essentials" "APT repository upgrade, base packages, locale, timezone, SSD TRIM"
 
     log_section "APT Repository & System Upgrade"
     perform_apt_upgrade
@@ -261,6 +287,9 @@ main() {
     log_section "Localization & Timezone"
     configure_locale
     configure_timezone
+
+    log_section "Storage Optimization"
+    configure_ssd_trim
 
     log_section "APT Maintenance & Cleanup"
     cleanup_apt_cache

@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Mitseri Platform — Docker Engine & Compose Installation
+# Server Bootstrap Framework — Docker Engine & Compose Installation
 # ==============================================================================
 #
 # Description:
 #   Installs Docker Engine (CE) and Docker Compose Plugin from official Docker
 #   repositories. Configures production-grade daemon settings, logging limits,
-#   default address pools, systemd service enable, and docker network baseline.
+#   default address pools, systemd service enablement, user group attachment,
+#   and default container bridge network.
 #
 # Architecture Decision — Log Driver:
-#   Uses json-file log driver with 10m max-size and 3 max-file rotation.
-#   Promtail (Milestone 5) scrapes logs from /var/lib/docker/containers/ in
-#   JSON format. The "local" driver uses binary format incompatible with Promtail.
+#   Uses json-file log driver with configurable max-size and max-file rotation.
+#   Scrapers (such as Promtail / Fluentbit) parse container logs from
+#   /var/lib/docker/containers/ in JSON format.
 #
 # Constraints:
 #   - MUST be run as root (EUID 0)
@@ -21,9 +22,6 @@
 #
 # Usage:
 #   sudo bash bootstrap/03-install-docker.sh
-#
-# System Requirements:
-#   Ubuntu Server 24.04 LTS (Noble Numbat) — Bash 5.2+
 #
 # ==============================================================================
 
@@ -41,9 +39,8 @@ source "${SCRIPT_DIR}/lib/common.sh"
 readonly DOCKER_KEYRING="/etc/apt/keyrings/docker.gpg"
 readonly DOCKER_SOURCES="/etc/apt/sources.list.d/docker.list"
 readonly DOCKER_DAEMON_JSON="/etc/docker/daemon.json"
-readonly DOCKER_NETWORK_NAME="mitseri-net"
 
-readonly DOCKER_PACKAGES=(
+readonly DEFAULT_DOCKER_PACKAGES=(
     "docker-ce"
     "docker-ce-cli"
     "containerd.io"
@@ -132,10 +129,17 @@ install_docker_packages() {
     local pkg
     local installed_count=0
     local skipped_count=0
+    local packages=("${DEFAULT_DOCKER_PACKAGES[@]}")
+
+    if [[ -n "${EXTRA_DOCKER_PACKAGES:-}" ]]; then
+        local extra_pkgs=()
+        read -r -a extra_pkgs <<< "${EXTRA_DOCKER_PACKAGES}"
+        packages+=("${extra_pkgs[@]}")
+    fi
 
     log_info "Installing Docker Engine packages..."
 
-    for pkg in "${DOCKER_PACKAGES[@]}"; do
+    for pkg in "${packages[@]}"; do
         if is_installed "${pkg}"; then
             skipped_count=$((skipped_count + 1))
         else
@@ -149,25 +153,30 @@ install_docker_packages() {
 
 # Configure /etc/docker/daemon.json with SHA256 comparison and production tuning
 configure_docker_daemon() {
+    local log_driver="${DOCKER_LOG_DRIVER:-json-file}"
     local max_size="${DOCKER_LOG_MAX_SIZE:-10m}"
     local max_file="${DOCKER_LOG_MAX_FILE:-3}"
+    local storage_driver="${DOCKER_STORAGE_DRIVER:-overlay2}"
+    local live_restore="${DOCKER_LIVE_RESTORE:-true}"
+    local pool_base="${DOCKER_ADDRESS_POOL_BASE:-172.18.0.0/16}"
+    local pool_size="${DOCKER_ADDRESS_POOL_SIZE:-24}"
 
     log_info "Configuring Docker daemon settings in ${DOCKER_DAEMON_JSON}..."
 
     local content
     content=$(cat <<DAEMON_EOF
 {
-    "log-driver": "json-file",
+    "log-driver": "${log_driver}",
     "log-opts": {
         "max-size": "${max_size}",
         "max-file": "${max_file}"
     },
-    "storage-driver": "overlay2",
-    "live-restore": true,
+    "storage-driver": "${storage_driver}",
+    "live-restore": ${live_restore},
     "default-address-pools": [
         {
-            "base": "172.18.0.0/16",
-            "size": 24
+            "base": "${pool_base}",
+            "size": ${pool_size}
         }
     ]
 }
@@ -179,7 +188,7 @@ DAEMON_EOF
 
 # Ensure operational deploy user is attached to docker group
 attach_deploy_user_to_docker_group() {
-    local deploy_user="${DEPLOY_USER:-deploy}"
+    local deploy_user="${DEPLOY_USER:-${OPERATIONAL_USER:-deploy}}"
 
     if ! id "${deploy_user}" &>/dev/null; then
         log_warn "User '${deploy_user}' does not exist — skipping docker group assignment"
@@ -217,26 +226,30 @@ enable_and_start_docker() {
     log_success "Docker Engine service active and running"
 }
 
-# Create default mitseri-net Docker network idempotently
+# Create default platform Docker network idempotently
 create_docker_network() {
-    log_info "Creating default platform Docker network '${DOCKER_NETWORK_NAME}'..."
+    local network_name="${DOCKER_NETWORK_NAME:-${DEFAULT_DOCKER_NETWORK:-bootstrap-net}}"
+
+    log_info "Creating default platform Docker network '${network_name}'..."
 
     if [[ "${DRY_RUN}" == "true" ]]; then
-        log_dry "Would create docker network: ${DOCKER_NETWORK_NAME} (bridge)"
+        log_dry "Would create docker network: ${network_name} (bridge)"
         return 0
     fi
 
-    if docker network inspect "${DOCKER_NETWORK_NAME}" >/dev/null 2>&1; then
-        log_info "Docker network '${DOCKER_NETWORK_NAME}' already exists"
+    if docker network inspect "${network_name}" >/dev/null 2>&1; then
+        log_info "Docker network '${network_name}' already exists"
         return 0
     fi
 
-    docker network create --driver bridge "${DOCKER_NETWORK_NAME}" >/dev/null 2>&1
-    log_success "Created Docker bridge network: ${DOCKER_NETWORK_NAME}"
+    docker network create --driver bridge "${network_name}" >/dev/null 2>&1
+    log_success "Created Docker bridge network: ${network_name}"
 }
 
 # Verify Docker installation metrics and runtime health
 verify_docker_installation() {
+    local network_name="${DOCKER_NETWORK_NAME:-${DEFAULT_DOCKER_NETWORK:-bootstrap-net}}"
+
     log_section "DOCKER INSTALLATION VERIFICATION"
 
     if [[ "${DRY_RUN}" == "true" ]]; then
@@ -268,7 +281,7 @@ verify_docker_installation() {
     printf '  Docker Compose:  %s\n' "${compose_ver}"
     printf '  Logging Driver:  %s\n' "${log_driver}"
     printf '  Live Restore:    %s\n' "${live_restore}"
-    printf '  Bridge Network:  %s (Created)\n' "${DOCKER_NETWORK_NAME}"
+    printf '  Bridge Network:  %s (Active)\n' "${network_name}"
     printf '\n'
 }
 

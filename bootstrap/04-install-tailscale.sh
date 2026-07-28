@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Mitseri Platform — Tailscale VPN Installation & Authentication
+# Server Bootstrap Framework — Tailscale VPN Installation & Authentication
 # ==============================================================================
 #
 # Description:
@@ -21,9 +21,6 @@
 #
 # Usage:
 #   sudo bash bootstrap/04-install-tailscale.sh
-#
-# System Requirements:
-#   Ubuntu Server 24.04 LTS (Noble Numbat) — Bash 5.2+
 #
 # ==============================================================================
 
@@ -60,8 +57,10 @@ add_tailscale_repository() {
         return 0
     fi
 
-    local ubuntu_codename
-    ubuntu_codename=$(lsb_release -cs 2>/dev/null || echo "noble")
+    local ubuntu_codename="${VERSION_CODENAME:-}"
+    if [[ -z "${ubuntu_codename}" ]]; then
+        ubuntu_codename=$(lsb_release -cs 2>/dev/null || echo "noble")
+    fi
 
     log_info "Downloading Tailscale GPG keyring..."
     retry 3 3 curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${ubuntu_codename}.noarmor.gpg" \
@@ -113,7 +112,12 @@ enable_tailscale_service() {
 # Authenticate Tailscale node to Tailnet using TAILSCALE_AUTHKEY from .env
 authenticate_tailscale_node() {
     local authkey="${TAILSCALE_AUTHKEY:-}"
-    local hostname="${TAILSCALE_HOSTNAME:-mitseri-server}"
+    local default_host
+    default_host=$(hostname 2>/dev/null || echo "bootstrap-server")
+    local hostname="${TAILSCALE_HOSTNAME:-${VPN_HOSTNAME:-${default_host}}}"
+    local accept_dns="${TAILSCALE_ACCEPT_DNS:-false}"
+    local accept_routes="${TAILSCALE_ACCEPT_ROUTES:-true}"
+    local enable_ssh="${TAILSCALE_SSH:-false}"
 
     log_info "Checking Tailscale node authentication status..."
 
@@ -136,18 +140,38 @@ authenticate_tailscale_node() {
 
     log_info "Authenticating Tailscale node with hostname '${hostname}'..."
 
+    local ts_args=(
+        "--authkey=${authkey}"
+        "--hostname=${hostname}"
+        "--accept-dns=${accept_dns}"
+    )
+
+    if [[ "${accept_routes}" == "true" ]]; then
+        ts_args+=("--accept-routes")
+    fi
+
+    if [[ "${enable_ssh}" == "true" ]]; then
+        ts_args+=("--ssh")
+    fi
+
+    if [[ -n "${TAILSCALE_EXTRA_ARGS:-}" ]]; then
+        local extra_args=()
+        read -r -a extra_args <<< "${TAILSCALE_EXTRA_ARGS}"
+        ts_args+=("${extra_args[@]}")
+    fi
+
     # Authenticate node with non-interactive flags
-    tailscale up \
-        --authkey="${authkey}" \
-        --hostname="${hostname}" \
-        --accept-routes \
-        --accept-dns=false
+    tailscale up "${ts_args[@]}"
 
     log_success "Tailscale node successfully authenticated as '${hostname}'"
 }
 
 # Verify Tailscale connectivity and IPv4 allocation
 verify_tailscale_connection() {
+    local default_host
+    default_host=$(hostname 2>/dev/null || echo "bootstrap-server")
+    local hostname="${TAILSCALE_HOSTNAME:-${VPN_HOSTNAME:-${default_host}}}"
+
     log_section "TAILSCALE INSTALLATION VERIFICATION"
 
     if [[ "${DRY_RUN}" == "true" ]]; then
@@ -176,7 +200,7 @@ verify_tailscale_connection() {
 
     printf '  Tailscale Daemon: Running\n'
     printf '  Tailscale IPv4:   %s\n' "${ts_ip:-Pending}"
-    printf '  Hostname:        %s\n' "${TAILSCALE_HOSTNAME:-mitseri-server}"
+    printf '  Hostname:        %s\n' "${hostname}"
     printf '\n'
 }
 

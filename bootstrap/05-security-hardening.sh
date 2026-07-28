@@ -1,32 +1,24 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Mitseri Platform — Security Hardening Baseline
+# Server Bootstrap Framework — Security Hardening Baseline
 # ==============================================================================
 #
 # Description:
 #   Hardens the host server with production-grade security baseline settings:
-#   - SSH Hardening (Phase 1: Disable root login, AllowUsers deploy)
-#   - UFW Firewall Baseline (Deny incoming, allow SSH private/Tailscale & UDP 41641)
+#   - OpenSSH Hardening (Phase 1: Disable root login, AllowUsers deploy)
+#   - UFW Firewall Baseline (Deny incoming, allow SSH private/Tailscale & P2P)
 #   - Fail2ban Jail Configuration for SSH brute-force protection
-#   - Kernel Sysctl Tuning (Network security, socket limits, inotify, Redis memory)
+#   - Kernel Sysctl Tuning (Network security, socket limits, inotify, swap)
+#   - Journald Persistence & Retention Limiting
 #   - Unattended Automatic Security Updates (No auto-reboot)
-#
-# SSH Phase Transition:
-#   Phase 1 (This script): PasswordAuthentication YES (allows initial key upload).
-#   Phase 2 (Post-Bootstrap): Change PasswordAuthentication to NO after key login
-#   is verified via Tailscale SSH.
 #
 # Constraints:
 #   - MUST be run as root (EUID 0)
 #   - All operations MUST be idempotent
 #   - User 'deploy' MUST exist (Step 02) before executing SSH AllowUsers
-#   - Tailscale interface MUST exist (Step 04) before UFW rule binding
 #
 # Usage:
 #   sudo bash bootstrap/05-security-hardening.sh
-#
-# System Requirements:
-#   Ubuntu Server 24.04 LTS (Noble Numbat) — Bash 5.2+
 #
 # ==============================================================================
 
@@ -41,12 +33,13 @@ source "${SCRIPT_DIR}/lib/common.sh"
 # WORKFLOW FUNCTIONS
 # ==============================================================================
 
-# Configure SSH Hardening (Phase 1) with sshd syntax pre-validation
+# Configure OpenSSH Hardening (Phase 1) with sshd syntax pre-validation
 configure_ssh_hardening() {
-    local deploy_user="${DEPLOY_USER:-deploy}"
+    local deploy_user="${DEPLOY_USER:-${OPERATIONAL_USER:-deploy}}"
+    local password_auth="${SSH_PASSWORD_AUTH:-yes}"
+    local max_auth_tries="${SSH_MAX_AUTH_TRIES:-3}"
 
-    log_info "Configuring OpenSSH hardening baseline (Phase 1)..."
-    log_info "PasswordAuthentication remains ENABLED for initial setup"
+    log_info "Configuring OpenSSH hardening baseline..."
 
     # Verify deploy user exists before locking AllowUsers
     if ! id "${deploy_user}" &>/dev/null; then
@@ -55,25 +48,23 @@ configure_ssh_hardening() {
     fi
 
     local config_dir="/etc/ssh/sshd_config.d"
-    local config_file="${config_dir}/99-mitseri-hardening.conf"
+    local config_file="${config_dir}/99-bootstrap-hardening.conf"
 
     safe_mkdir "${config_dir}" "755"
 
     local content
     content=$(cat <<SSH_EOF
 # ==============================================================================
-# Mitseri Platform — SSH Hardening (Phase 1)
+# Server Bootstrap Framework — SSH Hardening
 # ==============================================================================
 # Managed by bootstrap/05-security-hardening.sh — Do not edit manually.
-# Phase 1: PasswordAuthentication YES (for initial key deployment)
-# Phase 2: Change to NO after SSH key login is confirmed working via Tailscale
 # ==============================================================================
 
 # Authentication & Access Control
 PermitRootLogin no
-PasswordAuthentication yes
+PasswordAuthentication ${password_auth}
 PubkeyAuthentication yes
-MaxAuthTries 3
+MaxAuthTries ${max_auth_tries}
 AllowUsers ${deploy_user}
 
 # Session Limits & Hardening
@@ -99,7 +90,7 @@ SSH_EOF
     if [[ "${DRY_RUN}" != "true" ]]; then
         if sshd -t 2>/dev/null; then
             service_reload "ssh"
-            log_success "SSH hardened and reloaded successfully (Phase 1)"
+            log_success "SSH hardened and reloaded successfully"
         else
             log_error "SSH configuration syntax check failed via 'sshd -t' — reverting changes"
             rm -f "${config_file}"
@@ -109,7 +100,7 @@ SSH_EOF
     fi
 }
 
-# Configure UFW Firewall with default deny policy and Tailscale/P2P openings
+# Configure UFW Firewall with default deny policy and private/Tailscale openings
 configure_ufw_firewall() {
     log_info "Configuring UFW Firewall baseline..."
 
@@ -127,24 +118,34 @@ configure_ufw_firewall() {
     ufw default deny incoming > /dev/null 2>&1 || true
     ufw default allow outgoing > /dev/null 2>&1 || true
 
-    # Allow SSH from private RFC1918 networks
-    ufw allow from 10.0.0.0/8 to any port 22 proto tcp comment "SSH from private 10.x" > /dev/null 2>&1 || true
-    ufw allow from 172.16.0.0/12 to any port 22 proto tcp comment "SSH from private 172.x" > /dev/null 2>&1 || true
-    ufw allow from 192.168.0.0/16 to any port 22 proto tcp comment "SSH from private 192.x" > /dev/null 2>&1 || true
+    # Parse allowed SSH subnets
+    local ssh_subnets=()
+    if [[ -n "${SSH_ALLOWED_SUBNETS:-}" ]]; then
+        read -r -a ssh_subnets <<< "${SSH_ALLOWED_SUBNETS}"
+    else
+        ssh_subnets=("10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16" "100.64.0.0/10")
+    fi
 
-    # Allow SSH from Tailscale CGNAT subnet
-    ufw allow from 100.64.0.0/10 to any port 22 proto tcp comment "SSH from Tailscale CGNAT" > /dev/null 2>&1 || true
+    local subnet
+    for subnet in "${ssh_subnets[@]}"; do
+        ufw allow from "${subnet}" to any port 22 proto tcp comment "SSH from ${subnet}" > /dev/null 2>&1 || true
+    done
 
-    # Allow Tailscale WireGuard Direct P2P Port (UDP 41641)
-    ufw allow 41641/udp comment "Tailscale WireGuard Direct P2P" > /dev/null 2>&1 || true
+    # Allow Tailscale WireGuard Direct P2P Port (UDP 41641 default)
+    local p2p_port="${TAILSCALE_P2P_PORT:-41641}"
+    ufw allow "${p2p_port}/udp" comment "Tailscale WireGuard Direct P2P" > /dev/null 2>&1 || true
 
     # Enable firewall non-interactively
     ufw --force enable > /dev/null 2>&1
-    log_success "UFW Firewall active: Deny incoming, SSH allowed from Private/Tailscale"
+    log_success "UFW Firewall active: Deny incoming, SSH allowed from Private/Tailscale subnets"
 }
 
 # Configure Fail2ban SSH brute-force jail
 configure_fail2ban() {
+    local maxretry="${FAIL2BAN_MAXRETRY:-3}"
+    local bantime="${FAIL2BAN_BANTIME:-3600}"
+    local findtime="${FAIL2BAN_FINDTIME:-600}"
+
     log_info "Configuring Fail2ban SSH brute-force protection..."
 
     if ! check_dependency "fail2ban-client"; then
@@ -152,12 +153,12 @@ configure_fail2ban() {
         install_package "fail2ban"
     fi
 
-    local config_file="/etc/fail2ban/jail.d/mitseri.conf"
+    local config_file="/etc/fail2ban/jail.d/99-bootstrap.conf"
 
     local content
-    content=$(cat <<'F2B_EOF'
+    content=$(cat <<F2B_EOF
 # ==============================================================================
-# Mitseri Platform — Fail2ban Configuration
+# Server Bootstrap Framework — Fail2ban Configuration
 # ==============================================================================
 # Managed by bootstrap/05-security-hardening.sh — Do not edit manually.
 # ==============================================================================
@@ -165,9 +166,9 @@ configure_fail2ban() {
 [sshd]
 enabled = true
 port = ssh
-maxretry = 3
-bantime = 3600
-findtime = 600
+maxretry = ${maxretry}
+bantime = ${bantime}
+findtime = ${findtime}
 backend = systemd
 F2B_EOF
 )
@@ -176,19 +177,19 @@ F2B_EOF
 
     service_enable "fail2ban"
     service_restart "fail2ban"
-    log_success "Fail2ban jail active (SSH ban: 1h, maxretries: 3)"
+    log_success "Fail2ban jail active (SSH ban: ${bantime}s, maxretries: ${maxretry})"
 }
 
 # Configure Kernel Sysctl parameters for Network, Memory, and File Descriptors
 configure_sysctl_kernel() {
-    log_info "Configuring kernel sysctl parameters in /etc/sysctl.d/99-mitseri.conf..."
+    log_info "Configuring kernel sysctl parameters in /etc/sysctl.d/99-bootstrap.conf..."
 
-    local config_file="/etc/sysctl.d/99-mitseri.conf"
+    local config_file="/etc/sysctl.d/99-bootstrap.conf"
 
     local content
     content=$(cat <<'SYSCTL_EOF'
 # ==============================================================================
-# Mitseri Platform — Kernel Parameter Hardening & Performance Tuning
+# Server Bootstrap Framework — Kernel Parameter Hardening & Performance Tuning
 # ==============================================================================
 # Managed by bootstrap/05-security-hardening.sh — Do not edit manually.
 # ==============================================================================
@@ -218,7 +219,7 @@ fs.file-max = 2097152
 fs.inotify.max_user_watches = 524288
 fs.inotify.max_user_instances = 512
 
-# --- Memory Tuning (SWAP & Redis Support) ---
+# --- Memory Tuning ---
 vm.swappiness = 10
 vm.overcommit_memory = 1
 SYSCTL_EOF
@@ -229,6 +230,39 @@ SYSCTL_EOF
     if [[ "${DRY_RUN}" != "true" ]]; then
         sysctl --system > /dev/null 2>&1 || true
         log_success "Kernel sysctl parameters successfully applied"
+    fi
+}
+
+# Configure Journald Persistence and SystemMaxUse Retention Limits
+configure_journald() {
+    local max_use="${JOURNALD_MAX_USE:-1G}"
+    local config_dir="/etc/systemd/journald.conf.d"
+    local config_file="${config_dir}/99-bootstrap.conf"
+
+    log_info "Configuring Journald log persistence and retention limits..."
+
+    safe_mkdir "${config_dir}" "755"
+
+    local content
+    content=$(cat <<JOURNALD_EOF
+# ==============================================================================
+# Server Bootstrap Framework — Journald Configuration
+# ==============================================================================
+# Managed by bootstrap/05-security-hardening.sh — Do not edit manually.
+# ==============================================================================
+
+[Journal]
+Storage=persistent
+SystemMaxUse=${max_use}
+Compress=yes
+JOURNALD_EOF
+)
+
+    write_config "${config_file}" "${content}" "644"
+
+    if [[ "${DRY_RUN}" != "true" ]]; then
+        service_reload "systemd-journald"
+        log_success "Journald log retention applied (Storage: persistent, MaxUse: ${max_use})"
     fi
 }
 
@@ -252,11 +286,11 @@ AUTO_EOF
     write_config "${auto_file}" "${auto_content}" "644"
 
     # Configure unattended upgrades behavior (No auto reboot)
-    local unattended_file="/etc/apt/apt.conf.d/51mitseri-unattended"
+    local unattended_file="/etc/apt/apt.conf.d/51bootstrap-unattended"
     local unattended_content
     unattended_content=$(cat <<'UNATTENDED_EOF'
 // ==============================================================================
-// Mitseri Platform — Unattended Upgrades Configuration
+// Server Bootstrap Framework — Unattended Upgrades Configuration
 // ==============================================================================
 // Managed by bootstrap/05-security-hardening.sh — Do not edit manually.
 // Only security updates. Automatic reboot DISABLED for production stability.
@@ -278,22 +312,24 @@ verify_security_baseline() {
     log_section "SECURITY HARDENING VERIFICATION REPORT"
 
     if [[ "${DRY_RUN}" == "true" ]]; then
-        log_dry "Would verify UFW, Fail2ban, and SSH configuration status"
+        log_dry "Would verify UFW, Fail2ban, Journald, and SSH configuration status"
         return 0
     fi
 
     local ufw_status
     local fail2ban_status
     local ssh_root_login
+    local ssh_config="/etc/ssh/sshd_config.d/99-bootstrap-hardening.conf"
 
     ufw_status=$(ufw status 2>/dev/null | grep -i "Status:" | awk '{print $2}' || echo "inactive")
     fail2ban_status=$(systemctl is-active fail2ban 2>/dev/null || echo "inactive")
-    ssh_root_login=$(grep -i "^PermitRootLogin" /etc/ssh/sshd_config.d/99-mitseri-hardening.conf 2>/dev/null | awk '{print $2}' || echo "unknown")
+    ssh_root_login=$(grep -i "^PermitRootLogin" "${ssh_config}" 2>/dev/null | awk '{print $2}' || echo "unknown")
 
     printf '  SSH PermitRootLogin: %s\n' "${ssh_root_login}"
     printf '  UFW Firewall Status: %s\n' "${ufw_status}"
     printf '  Fail2ban Jail:       %s\n' "${fail2ban_status}"
-    printf '  Sysctl Parameters:   Applied (/etc/sysctl.d/99-mitseri.conf)\n'
+    printf '  Sysctl Parameters:   Applied (/etc/sysctl.d/99-bootstrap.conf)\n'
+    printf '  Journald Retention:  Configured (/etc/systemd/journald.conf.d/99-bootstrap.conf)\n'
     printf '  Unattended Upgrades: Enabled (No Auto-Reboot)\n'
     printf '\n'
 }
@@ -311,7 +347,7 @@ main() {
         load_env "${env_file}"
     fi
 
-    print_header "Security Hardening" "SSH hardening, UFW firewall, Fail2ban, sysctl, auto-updates"
+    print_header "Security Hardening" "SSH hardening, UFW firewall, Fail2ban, sysctl, journald, auto-updates"
 
     log_section "SSH Hardening (Phase 1)"
     configure_ssh_hardening
@@ -324,6 +360,9 @@ main() {
 
     log_section "Kernel Sysctl Tuning"
     configure_sysctl_kernel
+
+    log_section "Journald Log Hardening"
+    configure_journald
 
     log_section "Automatic Security Updates"
     configure_unattended_upgrades
