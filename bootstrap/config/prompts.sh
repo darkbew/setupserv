@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Server Bootstrap Framework — Terminal UI Prompt Helpers
+# Server Bootstrap Framework — Terminal UI Prompt Helpers & Type Dispatcher
 # ==============================================================================
 #
 # Description:
-#   Reusable terminal UI prompt helpers for the configuration subsystem.
-#   Handles user input, default value substitution, validation loops,
-#   password masking, strength warnings, and signal cleanup safety.
+#   Reusable terminal UI prompt helpers and type-based dispatcher for the
+#   configuration subsystem. Handles user input, default value substitution,
+#   SHOW_IF/REQUIRED_IF rule evaluation, placeholder checks, and signal safety.
 #
 # Constraints:
 #   - Must source validators.sh
@@ -38,12 +38,13 @@ cleanup_terminal_echo() {
 # 1. CORE PROMPT HELPERS
 # ------------------------------------------------------------------------------
 
-# Generic Text Prompt with validation loop and default fallback
+# Generic Text Prompt with validation loop, requirement check, and default fallback
 prompt_text() {
     local var_name="$1"
     local label="$2"
     local default_val="${3:-}"
-    local validator_func="${4:-none}"
+    local validator_func="${4:-validate_optional}"
+    local required_if_expr="${5:-never}"
 
     local current_val="${CONFIG_VALUES[${var_name}]:-${default_val}}"
     local input_val=""
@@ -61,14 +62,20 @@ prompt_text() {
         # Trim leading/trailing whitespace
         input_val="$(echo "${input_val}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 
-        # Allow empty if not required and no validator specified
-        if [[ -z "${input_val}" ]] && [[ "${validator_func}" == "none" ]]; then
+        # Check REQUIRED_IF rule and placeholder rejection
+        if eval_metadata_rule "${required_if_expr}" && is_placeholder "${input_val}"; then
+            printf '    %s[ERROR]%s %s is required. Value cannot be empty or placeholder.\n' "${RED}" "${NC}" "${label}"
+            continue
+        fi
+
+        # Allow empty/placeholder if not required
+        if is_placeholder "${input_val}"; then
             CONFIG_VALUES["${var_name}"]=""
             return 0
         fi
 
-        # Validate input
-        if [[ "${validator_func}" != "none" ]] && declare -f "${validator_func}" >/dev/null; then
+        # Validate format
+        if [[ "${validator_func}" != "none" ]] && [[ "${validator_func}" != "validate_optional" ]] && declare -f "${validator_func}" >/dev/null; then
             if "${validator_func}" "${input_val}"; then
                 CONFIG_VALUES["${var_name}"]="${input_val}"
                 return 0
@@ -123,24 +130,41 @@ prompt_secret() {
     local var_name="$1"
     local label="$2"
     local default_val="${3:-}"
+    local required_if_expr="${4:-never}"
 
+    local current_val="${CONFIG_VALUES[${var_name}]:-${default_val}}"
     local input_val=""
+
     while true; do
         trap cleanup_terminal_echo EXIT INT TERM
         stty -echo 2>/dev/null || true
-        printf '  %s%s%s: ' "${BOLD}" "${label}" "${NC}"
+
+        if [[ -n "${current_val}" ]] && [[ "${current_val}" != "CHANGE_ME" ]]; then
+            printf '  %s%s%s [%s********%s]: ' "${BOLD}" "${label}" "${NC}" "${CYAN}" "${NC}"
+        else
+            printf '  %s%s%s: ' "${BOLD}" "${label}" "${NC}"
+        fi
+
         read -r input_val || return 1
         stty echo 2>/dev/null || true
         printf '\n'
         trap - EXIT INT TERM
 
-        input_val="${input_val:-${default_val}}"
-        if [[ -n "${input_val}" ]]; then
-            CONFIG_VALUES["${var_name}"]="${input_val}"
-            return 0
-        else
-            printf '    %s[ERROR]%s Value cannot be empty.\n' "${RED}" "${NC}"
+        input_val="${input_val:-${current_val}}"
+
+        # Check REQUIRED_IF rule and placeholder rejection
+        if eval_metadata_rule "${required_if_expr}" && is_placeholder "${input_val}"; then
+            printf '    %s[ERROR]%s %s is required. Value cannot be empty or placeholder.\n' "${RED}" "${NC}" "${label}"
+            continue
         fi
+
+        if is_placeholder "${input_val}"; then
+            CONFIG_VALUES["${var_name}"]=""
+            return 0
+        fi
+
+        CONFIG_VALUES["${var_name}"]="${input_val}"
+        return 0
     done
 }
 
@@ -149,6 +173,7 @@ prompt_password() {
     local var_name="$1"
     local label="$2"
     local min_len="${3:-12}"
+    local required_if_expr="${4:-never}"
 
     local pass1="" pass2="" strength=""
     while true; do
@@ -160,8 +185,9 @@ prompt_password() {
         stty echo 2>/dev/null || true
         printf '\n'
 
-        if [[ -z "${pass1}" ]]; then
-            printf '    %s[ERROR]%s Password cannot be empty.\n' "${RED}" "${NC}"
+        # Check REQUIRED_IF and placeholder rejection
+        if eval_metadata_rule "${required_if_expr}" && is_placeholder "${pass1}"; then
+            printf '    %s[ERROR]%s Password is required and cannot be empty or placeholder.\n' "${RED}" "${NC}"
             trap - EXIT INT TERM
             continue
         fi
@@ -197,33 +223,6 @@ prompt_password() {
         CONFIG_VALUES["${var_name}"]="${pass1}"
         return 0
     done
-}
-
-# Port Number Prompt Helper
-prompt_port() {
-    local var_name="$1"
-    local label="$2"
-    local default_port="${3:-22}"
-
-    prompt_text "${var_name}" "${label}" "${default_port}" "validate_port"
-}
-
-# Timezone Prompt Helper
-prompt_timezone() {
-    local var_name="$1"
-    local label="$2"
-    local default_tz="${3:-Asia/Jakarta}"
-
-    prompt_text "${var_name}" "${label}" "${default_tz}" "validate_timezone"
-}
-
-# Integer Prompt Helper
-prompt_integer() {
-    local var_name="$1"
-    local label="$2"
-    local default_int="${3:-1}"
-
-    prompt_text "${var_name}" "${label}" "${default_int}" "validate_integer"
 }
 
 # Selection Menu Prompt
@@ -283,4 +282,45 @@ prompt_confirm() {
             *) printf '    %s[ERROR]%s Please enter '\''y'\'' or '\''n'\''.\n' "${RED}" "${NC}" ;;
         esac
     done
+}
+
+# ------------------------------------------------------------------------------
+# 2. TYPE DISPATCHER ENGINE
+# ------------------------------------------------------------------------------
+
+# Single dispatcher responsible for prompt selection based on metadata TYPE
+dispatch_prompt_by_type() {
+    local var_name="$1"
+    local section="$2"
+    local type="$3"
+    local prompt_text="$4"
+    local description="$5"
+    local default_val="$6"
+    local validator="$7"
+    local show_if="$8"
+    local required_if="$9"
+    local secret="${10:-false}"
+
+    # Evaluate SHOW_IF visibility rule
+    if ! eval_metadata_rule "${show_if}"; then
+        return 0
+    fi
+
+    case "${type,,}" in
+        boolean)
+            prompt_boolean "${var_name}" "${prompt_text}" "${CONFIG_VALUES[${var_name}]:-${default_val}}"
+            ;;
+        password)
+            prompt_password "${var_name}" "${prompt_text}" 12 "${required_if}"
+            ;;
+        secret)
+            prompt_secret "${var_name}" "${prompt_text}" "${CONFIG_VALUES[${var_name}]:-${default_val}}" "${required_if}"
+            ;;
+        select)
+            prompt_select "${var_name}" "${prompt_text}" "${validator}" "${CONFIG_VALUES[${var_name}]:-${default_val}}"
+            ;;
+        *)
+            prompt_text "${var_name}" "${prompt_text}" "${CONFIG_VALUES[${var_name}]:-${default_val}}" "${validator}" "${required_if}"
+            ;;
+    esac
 }

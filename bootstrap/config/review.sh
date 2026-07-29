@@ -5,7 +5,8 @@
 #
 # Description:
 #   Renders the interactive review matrix, section edit menu, and pre-generation
-#   validation engine. Prevents `.env` generation if critical validation failures exist.
+#   validation engine. Uses eval_metadata_rule and is_placeholder.
+#   Prevents `.env` generation if critical validation failures exist.
 #
 # Constraints:
 #   - Must source wizard-metadata.sh and prompts.sh
@@ -28,57 +29,52 @@ source "${_REVIEW_DIR}/prompts.sh"
 # Ensure global associative array exists
 declare -A CONFIG_VALUES 2>/dev/null || true
 
-# Validate a specific section and return status string (PASS, WARN, FAIL)
-validate_section_status() {
+# Collect array of missing required variable prompt titles for a section
+get_section_missing_vars() {
     local target_section="$1"
-    local has_fail=false
-    local has_warn=false
+    local missing_list=()
 
-    local entry var_name section prompt_text desc default_val validator required secret condition
+    local entry var_name section type prompt_text desc default_val validator show_if required_if secret
     for entry in "${CONFIG_METADATA[@]}"; do
-        IFS='|' read -r var_name section prompt_text desc default_val validator required secret condition <<< "${entry}"
+        IFS='|' read -r var_name section type prompt_text desc default_val validator show_if required_if secret <<< "${entry}"
         if [[ "${section}" != "${target_section}" ]]; then
             continue
         fi
 
-        # Check condition
-        if [[ -n "${condition}" ]]; then
-            local cond_val="${CONFIG_VALUES[${condition}]:-no}"
-            if [[ "${cond_val,,}" =~ ^(no|n|false|0)$ ]]; then
-                continue
-            fi
+        # Skip if REQUIRED_IF rule is not active
+        if ! eval_metadata_rule "${required_if}"; then
+            continue
         fi
 
         local val="${CONFIG_VALUES[${var_name}]:-}"
 
-        # Check required
-        if [[ "${required}" == "true" ]] && [[ -z "${val}" ]]; then
-            has_fail=true
+        # If required rule is active and value is placeholder / empty, mark missing
+        if is_placeholder "${val}"; then
+            missing_list+=("${prompt_text}")
             continue
         fi
 
-        # Check placeholder CHANGE_ME
-        if [[ "${val}" == "CHANGE_ME" ]] && [[ "${required}" == "true" ]]; then
-            if [[ "${secret}" == "secret" ]] || [[ "${var_name}" == *"PASSWORD"* ]]; then
-                has_fail=true
-            else
-                has_warn=true
-            fi
-            continue
-        fi
-
-        # Run validator
-        if [[ "${validator}" != "none" ]] && declare -f "${validator}" >/dev/null; then
+        # Format validation check
+        if [[ "${validator}" != "none" ]] && [[ "${validator}" != "validate_optional" ]] && declare -f "${validator}" >/dev/null; then
             if ! "${validator}" "${val}"; then
-                has_fail=true
+                missing_list+=("${prompt_text} (Invalid format)")
             fi
         fi
     done
 
-    if [[ "${has_fail}" == "true" ]]; then
+    if [[ ${#missing_list[@]} -gt 0 ]]; then
+        printf '%s\n' "${missing_list[@]}"
+    fi
+}
+
+# Validate a specific section and return status string (PASS, WARN, FAIL)
+validate_section_status() {
+    local target_section="$1"
+    local missing
+    missing=$(get_section_missing_vars "${target_section}")
+
+    if [[ -n "${missing}" ]]; then
         echo "FAIL"
-    elif [[ "${has_warn}" == "true" ]]; then
-        echo "WARN"
     else
         echo "PASS"
     fi
@@ -93,6 +89,22 @@ render_status_badge() {
         FAIL) printf '%s[FAIL]%s' "${RED}" "${NC}" ;;
         *)    printf '%s[SKIP]%s' "${CYAN}" "${NC}" ;;
     esac
+}
+
+# Helper to render bulleted list of missing required fields if section failed
+render_section_missing_bullets() {
+    local section_id="$1"
+    local missing_raw
+    missing_raw=$(get_section_missing_vars "${section_id}")
+
+    if [[ -n "${missing_raw}" ]]; then
+        printf '         %s↳ Missing required fields:%s\n' "${RED}" "${NC}"
+        local item
+        while IFS= read -r item; do
+            [[ -z "${item}" ]] && continue
+            printf '           %s•%s %s\n' "${RED}" "${NC}" "${item}"
+        done <<< "${missing_raw}"
+    fi
 }
 
 # Display full review matrix
@@ -113,94 +125,77 @@ render_review_matrix() {
     s7=$(validate_section_status "7_traefik")
     s8=$(validate_section_status "8_cloudflare")
 
-    printf '  %s1) General           %s : Hostname: %s | Domain: %s | User: %s | SSH Port: %s\n' \
-        "$(render_status_badge "${s1}")" "${BOLD}" \
+    printf '  %s 1) General           : Hostname: %s | Domain: %s | User: %s | SSH Port: %s\n' \
+        "$(render_status_badge "${s1}")" \
         "${CONFIG_VALUES[HOSTNAME]:-N/A}" \
         "${CONFIG_VALUES[DOMAIN]:-N/A}" \
         "${CONFIG_VALUES[DEPLOY_USER]:-N/A}" \
         "${CONFIG_VALUES[SSH_PORT]:-22}"
+    render_section_missing_bullets "1_general"
 
-    printf '  %s2) Docker            %s : Status: %s | Network: %s | Log Max: %s\n' \
-        "$(render_status_badge "${s2}")" "${BOLD}" \
+    printf '  %s 2) Docker            : Status: %s | Network: %s | Log Max: %s\n' \
+        "$(render_status_badge "${s2}")" \
         "${CONFIG_VALUES[INSTALL_DOCKER]:-yes}" \
         "${CONFIG_VALUES[DOCKER_NETWORK_NAME]:-bootstrap-net}" \
         "${CONFIG_VALUES[DOCKER_LOG_MAX_SIZE]:-10m}"
+    render_section_missing_bullets "2_docker"
 
-    printf '  %s3) Security          %s : RootLogin: %s | PwdAuth: %s | UFW: %s | Fail2ban: %s\n' \
-        "$(render_status_badge "${s3}")" "${BOLD}" \
+    printf '  %s 3) Security          : RootLogin: %s | PwdAuth: %s | UFW: %s | Fail2ban: %s\n' \
+        "$(render_status_badge "${s3}")" \
         "${CONFIG_VALUES[PERMIT_ROOT_LOGIN]:-no}" \
         "${CONFIG_VALUES[SSH_PASSWORD_AUTH]:-yes}" \
         "${CONFIG_VALUES[ENABLE_UFW]:-yes}" \
         "${CONFIG_VALUES[ENABLE_FAIL2BAN]:-yes}"
+    render_section_missing_bullets "3_security"
 
-    printf '  %s4) Tailscale         %s : Status: %s | Hostname: %s\n' \
-        "$(render_status_badge "${s4}")" "${BOLD}" \
+    printf '  %s 4) Tailscale         : Status: %s | Hostname: %s\n' \
+        "$(render_status_badge "${s4}")" \
         "${CONFIG_VALUES[INSTALL_TAILSCALE]:-yes}" \
         "${CONFIG_VALUES[TAILSCALE_HOSTNAME]:-bootstrap-server}"
+    render_section_missing_bullets "4_tailscale"
 
-    printf '  %s5) Monitoring        %s : Status: %s | Grafana: %s | Prometheus: %s\n' \
-        "$(render_status_badge "${s5}")" "${BOLD}" \
+    printf '  %s 5) Monitoring        : Status: %s | Grafana: %s | Prometheus: %s\n' \
+        "$(render_status_badge "${s5}")" \
         "${CONFIG_VALUES[INSTALL_MONITORING]:-no}" \
         "${CONFIG_VALUES[ENABLE_GRAFANA]:-no}" \
         "${CONFIG_VALUES[ENABLE_PROMETHEUS]:-no}"
+    render_section_missing_bullets "5_monitoring"
 
-    printf '  %s6) Backup            %s : Status: %s | Schedule: %s | Target: %s\n' \
-        "$(render_status_badge "${s6}")" "${BOLD}" \
+    printf '  %s 6) Backup            : Status: %s | Schedule: %s | Target: %s\n' \
+        "$(render_status_badge "${s6}")" \
         "${CONFIG_VALUES[INSTALL_BACKUP]:-no}" \
         "${CONFIG_VALUES[BACKUP_SCHEDULE]:-N/A}" \
         "${CONFIG_VALUES[BACKUP_REMOTE_NAME]:-gdrive}"
+    render_section_missing_bullets "6_backup"
 
-    printf '  %s7) Reverse Proxy     %s : Status: %s (Traefik v3) | User: %s\n' \
-        "$(render_status_badge "${s7}")" "${BOLD}" \
+    printf '  %s 7) Reverse Proxy     : Status: %s (Traefik v3) | User: %s\n' \
+        "$(render_status_badge "${s7}")" \
         "${CONFIG_VALUES[INSTALL_TRAEFIK]:-yes}" \
         "${CONFIG_VALUES[TRAEFIK_DASHBOARD_USER]:-admin}"
+    render_section_missing_bullets "7_traefik"
 
-    printf '  %s8) Cloudflare Tunnel %s : Status: %s\n' \
-        "$(render_status_badge "${s8}")" "${BOLD}" \
+    printf '  %s 8) Cloudflare Tunnel : Status: %s\n' \
+        "$(render_status_badge "${s8}")" \
         "${CONFIG_VALUES[INSTALL_CLOUDFLARE_TUNNEL]:-no}"
+    render_section_missing_bullets "8_cloudflare"
 
     printf '%s──────────────────────────────────────────────────────────────────────────────%s\n' "${BOLD}" "${NC}"
 }
 
-# Interactively prompt questions for a specific section
+# Interactively prompt questions for a specific section using type dispatcher
 prompt_section_interactive() {
     local target_section="$1"
     local section_title="$2"
 
     log_section "Configuring Section: ${section_title}"
 
-    local entry var_name section prompt_text desc default_val validator required secret condition
+    local entry var_name section type prompt_text desc default_val validator show_if required_if secret
     for entry in "${CONFIG_METADATA[@]}"; do
-        IFS='|' read -r var_name section prompt_text desc default_val validator required secret condition <<< "${entry}"
+        IFS='|' read -r var_name section type prompt_text desc default_val validator show_if required_if secret <<< "${entry}"
         if [[ "${section}" != "${target_section}" ]]; then
             continue
         fi
 
-        # Skip if parent condition is disabled
-        if [[ -n "${condition}" ]]; then
-            local cond_val="${CONFIG_VALUES[${condition}]:-no}"
-            if [[ "${cond_val,,}" =~ ^(no|n|false|0)$ ]]; then
-                continue
-            fi
-        fi
-
-        # Choose appropriate prompt helper based on metadata
-        if [[ "${validator}" == "validate_boolean" ]]; then
-            prompt_boolean "${var_name}" "${prompt_text}" "${CONFIG_VALUES[${var_name}]:-${default_val}}"
-        elif [[ "${secret}" == "secret" ]] || [[ "${var_name}" == *"PASSWORD"* ]]; then
-            if [[ "${validator}" == "validate_password" ]]; then
-                prompt_password "${var_name}" "${prompt_text}" 12
-            else
-                prompt_secret "${var_name}" "${prompt_text}" "${CONFIG_VALUES[${var_name}]:-${default_val}}"
-            fi
-        elif [[ "${validator}" == "validate_port" ]]; then
-            prompt_port "${var_name}" "${prompt_text}" "${CONFIG_VALUES[${var_name}]:-${default_val}}"
-        elif [[ "${validator}" == "validate_timezone" ]]; then
-            prompt_timezone "${var_name}" "${prompt_text}" "${CONFIG_VALUES[${var_name}]:-${default_val}}"
-        elif [[ "${validator}" == "validate_positive_integer" ]] || [[ "${validator}" == "validate_integer" ]]; then
-            prompt_integer "${var_name}" "${prompt_text}" "${CONFIG_VALUES[${var_name}]:-${default_val}}"
-        else
-            prompt_text "${var_name}" "${prompt_text}" "${CONFIG_VALUES[${var_name}]:-${default_val}}" "${validator}"
-        fi
+        dispatch_prompt_by_type "${var_name}" "${section}" "${type}" "${prompt_text}" "${desc}" "${default_val}" "${validator}" "${show_if}" "${required_if}" "${secret}"
     done
 }

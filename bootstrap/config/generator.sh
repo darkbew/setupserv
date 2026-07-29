@@ -4,9 +4,9 @@
 # ==============================================================================
 #
 # Description:
-#   Parses .env.example line-by-line, preserving all comments, section headers,
-#   blank lines, formatting, and key order. Replaces variable values from
-#   CONFIG_VALUES associative array and generates timestamped backups.
+#   Validates all REQUIRED_IF metadata rules via eval_metadata_rule and is_placeholder,
+#   parses .env.example line-by-line while preserving comments/formatting, and writes
+#   the target .env with timestamped backup support.
 #
 # Constraints:
 #   - Must use write_config() and backup_config() from lib/common.sh
@@ -22,6 +22,33 @@ _CONFIG_GENERATOR_SH_LOADED=1
 
 # Ensure global associative array exists
 declare -A CONFIG_VALUES 2>/dev/null || true
+
+# Validate generator requirement rules before writing .env
+validate_generator_requirements() {
+    local failed=0
+    local entry var_name section type prompt_text desc default_val validator show_if required_if secret
+
+    for entry in "${CONFIG_METADATA[@]}"; do
+        IFS='|' read -r var_name section type prompt_text desc default_val validator show_if required_if secret <<< "${entry}"
+
+        # Evaluate REQUIRED_IF rule
+        if eval_metadata_rule "${required_if}"; then
+            local val="${CONFIG_VALUES[${var_name}]:-}"
+
+            if is_placeholder "${val}"; then
+                log_error "Required configuration variable missing or placeholder: ${var_name} (${prompt_text})"
+                failed=1
+            fi
+        fi
+    done
+
+    if [[ "${failed}" -eq 1 ]]; then
+        log_error "Generator validation failed. Aborting .env generation due to missing required variables."
+        return 1
+    fi
+
+    return 0
+}
 
 # Compute dynamic COMPOSE_PROFILES value based on enabled stacks
 compute_compose_profiles() {
@@ -46,6 +73,11 @@ generate_env_file() {
     local project_root="$1"
     local env_example="${project_root}/.env.example"
     local env_target="${project_root}/.env"
+
+    # Pre-generation requirement assertion
+    if ! validate_generator_requirements; then
+        return 1
+    fi
 
     if [[ ! -f "${env_example}" ]]; then
         log_error "Template file not found: ${env_example}"

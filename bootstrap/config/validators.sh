@@ -4,9 +4,9 @@
 # ==============================================================================
 #
 # Description:
-#   Pure validation functions for the configuration subsystem.
-#   Functions accept input strings as arguments and return 0 (valid) or 1 (invalid).
-#   Contains NO terminal prompt logic or UI elements.
+#   Pure validation functions, rule evaluators, and placeholder checkers for the
+#   configuration subsystem. Functions accept arguments and return 0 (valid/true)
+#   or 1 (invalid/false). Contains NO terminal prompt logic or UI elements.
 #
 # Constraints:
 #   - Must be sourced by config-wizard.sh
@@ -21,9 +21,86 @@ if [[ -n "${_CONFIG_VALIDATORS_SH_LOADED:-}" ]]; then
 fi
 _CONFIG_VALIDATORS_SH_LOADED=1
 
+# Ensure global associative array exists for rule evaluation
+declare -A CONFIG_VALUES 2>/dev/null || true
+
 # ------------------------------------------------------------------------------
-# 1. NETWORK & NAMING VALIDATORS
+# 1. CENTRALIZED RULE EVALUATOR & PLACEHOLDER DETECTOR
 # ------------------------------------------------------------------------------
+
+# Centralized placeholder detector
+# Returns 0 (true) if value is empty or matches placeholder tokens (case-insensitive)
+is_placeholder() {
+    local val="${1:-}"
+
+    # Empty string is considered placeholder / missing
+    if [[ -z "${val}" ]]; then
+        return 0
+    fi
+
+    # Case-insensitive regex match for standard placeholder tokens
+    if [[ "${val,,}" =~ ^(change_me|change_this|your_.*|your_password|your_token|your_key)$ ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Centralized metadata rule evaluator
+# Supported syntax: empty, "always", "never", "VAR=value", "VAR!=value"
+eval_metadata_rule() {
+    local rule="${1:-}"
+
+    # Empty rule or "always" evaluates to true (0)
+    if [[ -z "${rule}" ]] || [[ "${rule,,}" == "always" ]]; then
+        return 0
+    fi
+
+    # "never" evaluates to false (1)
+    if [[ "${rule,,}" == "never" ]]; then
+        return 1
+    fi
+
+    local target_var target_val current_val
+
+    # Parse Inequality: VAR!=value
+    if [[ "${rule}" == *"!="* ]]; then
+        target_var="${rule%%!=*}"
+        target_val="${rule#*!=}"
+        current_var_val="${CONFIG_VALUES[${target_var}]:-}"
+
+        if [[ "${current_var_val,,}" != "${target_val,,}" ]]; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+
+    # Parse Equality: VAR=value
+    if [[ "${rule}" == *"="* ]]; then
+        target_var="${rule%%=*}"
+        target_val="${rule#*=}"
+        current_var_val="${CONFIG_VALUES[${target_var}]:-}"
+
+        if [[ "${current_var_val,,}" == "${target_val,,}" ]]; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+
+    # Default fallback: rule syntax not recognized, treat as false
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# 2. NETWORK & NAMING VALIDATORS
+# ------------------------------------------------------------------------------
+
+# Optional / Pass-through validator
+validate_optional() {
+    return 0
+}
 
 # Hostname format validator (RFC 1123 compliant)
 validate_hostname() {
@@ -108,7 +185,7 @@ validate_email() {
 }
 
 # ------------------------------------------------------------------------------
-# 2. NUMERIC & PORT VALIDATORS
+# 3. NUMERIC & PORT VALIDATORS
 # ------------------------------------------------------------------------------
 
 # Port number validator (1-65535)
@@ -139,7 +216,7 @@ validate_positive_integer() {
 }
 
 # ------------------------------------------------------------------------------
-# 3. CRON & DOCKER VALIDATORS
+# 4. CRON & DOCKER VALIDATORS
 # ------------------------------------------------------------------------------
 
 # Standard 5-field cron syntax validator
@@ -170,7 +247,7 @@ validate_docker_restart() {
 }
 
 # ------------------------------------------------------------------------------
-# 4. BOOLEAN & PASSWORD VALIDATORS
+# 5. BOOLEAN & PASSWORD VALIDATORS
 # ------------------------------------------------------------------------------
 
 # Boolean string validator (yes/no, y/n, true/false, 1/0)
