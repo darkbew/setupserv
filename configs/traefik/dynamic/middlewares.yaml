@@ -1,0 +1,34 @@
+# ==============================================================================
+# Server Bootstrap Framework — Traefik Dynamic Middlewares
+# ==============================================================================
+#
+# Description:
+#   Dynamic middleware definitions for security headers, scheme redirection,
+#   and basic authentication options.
+#
+# ==============================================================================
+
+http:
+  middlewares:
+    # Scheme Redirect Middleware (HTTP -> HTTPS)
+    redirect-to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+    # Enterprise Security Headers Baseline
+    security-headers:
+      headers:
+        frameDeny: false
+        customFrameOptionsValue: "SAMEORIGIN"
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+
+    # Compression Middleware
+    gzip-compress:
+      compress: {}

@@ -1,0 +1,74 @@
+# ==============================================================================
+# Server Bootstrap Framework — Traefik v3 Static Configuration
+# ==============================================================================
+#
+# Description:
+#   Static configuration for Traefik v3 reverse proxy in Layer 2 platform.
+#   Configures entrypoints (HTTP/HTTPS), providers (Docker Socket Proxy & File),
+#   Let's Encrypt ACME certificate resolver, ping health endpoint, and logging.
+#
+# ==============================================================================
+
+# Global Log Configuration
+log:
+  level: INFO
+  format: json
+
+# Access Log Configuration
+accessLog:
+  format: json
+  filters:
+    statusCodes:
+      - "200-299"
+      - "400-599"
+
+# Ping Healthcheck Endpoint (used by container healthcheck)
+ping:
+  entryPoint: traefik
+  manualRouting: true
+
+# EntryPoints Configuration
+entryPoints:
+  # Internal management entrypoint for ping / dashboard
+  traefik:
+    address: ":8080"
+
+  # HTTP Entrypoint — Port 80 (Redirects all traffic to HTTPS)
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  # HTTPS Entrypoint — Port 443 (TLS Encrypted)
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+
+# Dynamic Configuration Providers
+providers:
+  # Docker Socket Proxy Provider (Communicates strictly over TCP to socket proxy)
+  docker:
+    endpoint: "tcp://docker-socket-proxy:2375"
+    exposedByDefault: false
+    network: "proxy-net"
+    watch: true
+
+  # File Provider for dynamic middlewares and TLS settings
+  file:
+    directory: "/etc/traefik/dynamic"
+    watch: true
+
+# Let's Encrypt Certificate Resolver Configuration
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "${ADMIN_EMAIL}"
+      storage: "/etc/traefik/acme.json"
+      httpChallenge:
+        entryPoint: web

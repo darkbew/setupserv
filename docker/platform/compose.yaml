@@ -1,0 +1,130 @@
+# ==============================================================================
+# Server Bootstrap Framework — Layer 2 Platform Base Compose Specification
+# ==============================================================================
+#
+# Description:
+#   Base Compose file for Layer 2 Platform Infrastructure.
+#   Deploys tecnativa/docker-socket-proxy (security proxy for Docker API socket)
+#   and Traefik v3 (edge reverse proxy with automatic Let's Encrypt TLS).
+#
+# Constraints:
+#   - Traefik MUST NEVER mount /var/run/docker.sock directly.
+#   - Traefik communicates strictly with docker-socket-proxy over TCP port 2375.
+#   - Relies on pre-created external bridge networks: proxy-net, backend-net, monitoring-net.
+#
+# ==============================================================================
+
+name: platform
+
+networks:
+  proxy-net:
+    external: true
+    name: proxy-net
+  backend-net:
+    external: true
+    name: backend-net
+  monitoring-net:
+    external: true
+    name: monitoring-net
+
+services:
+  # ----------------------------------------------------------------------------
+  # Docker Socket Proxy — Secure API Firewall over /var/run/docker.sock
+  # ----------------------------------------------------------------------------
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:${SOCKET_PROXY_IMAGE_TAG:-v0.1.1}
+    container_name: docker-socket-proxy
+    restart: unless-stopped
+    read_only: true
+    user: "65534:65534"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    environment:
+      - CONTAINERS=1
+      - NETWORKS=1
+      - SERVICES=1
+      - TASKS=1
+      - VERSION=1
+      - POST=0
+      - EXEC=0
+      - BUILD=0
+      - VOLUMES=0
+      - SECRETS=0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      monitoring-net:
+        aliases:
+          - docker-socket-proxy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:2375/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+
+  # ----------------------------------------------------------------------------
+  # Traefik v3 — Edge Reverse Proxy & Automatic Let's Encrypt Ingress
+  # ----------------------------------------------------------------------------
+  traefik:
+    image: traefik:${TRAEFIK_IMAGE_TAG:-3.4}
+    container_name: traefik
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    tmpfs:
+      - /tmp
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-example.com}
+      - TRAEFIK_LOG_LEVEL=${TRAEFIK_LOG_LEVEL:-INFO}
+      - TRAEFIK_DASHBOARD_USER=${TRAEFIK_DASHBOARD_USER:-admin}
+      - TRAEFIK_DASHBOARD_PASSWORD=${TRAEFIK_DASHBOARD_PASSWORD:-CHANGE_ME}
+    volumes:
+      - ../../configs/traefik/traefik.yaml:/etc/traefik/traefik.yaml:ro
+      - ../../configs/traefik/dynamic/:/etc/traefik/dynamic/:ro
+      - ../../data/traefik/acme.json:/etc/traefik/acme.json:rw
+    networks:
+      - proxy-net
+      - monitoring-net
+    depends_on:
+      docker-socket-proxy:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "traefik healthcheck --ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ping.rule=Path(`/ping`)"
+      - "traefik.http.routers.ping.entrypoints=traefik"
+      - "traefik.http.routers.ping.service=ping@internal"

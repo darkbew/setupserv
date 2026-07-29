@@ -1,0 +1,210 @@
+# ==============================================================================
+# Server Bootstrap Framework — Layer 2 Monitoring Stack Overlay
+# ==============================================================================
+#
+# Description:
+#   Compose overlay specification for optional Layer 2 monitoring infrastructure:
+#   Prometheus, Grafana, Loki, Promtail, Node Exporter, cAdvisor, Uptime Kuma.
+#   Activated when INSTALL_MONITORING=yes in .env.
+#
+# ==============================================================================
+
+name: platform
+
+networks:
+  proxy-net:
+    external: true
+    name: proxy-net
+  monitoring-net:
+    external: true
+    name: monitoring-net
+
+services:
+  # ----------------------------------------------------------------------------
+  # Prometheus — Metrics Collector & Time-Series DB
+  # ----------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_IMAGE_TAG:-v3.4.1}
+    container_name: prometheus
+    restart: unless-stopped
+    read_only: true
+    user: "65534:65534"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    volumes:
+      - ../../configs/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ../../data/prometheus/data:/prometheus:rw
+    networks:
+      - monitoring-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ----------------------------------------------------------------------------
+  # Grafana — Metrics & Logs Visualization Dashboard
+  # ----------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:${GRAFANA_IMAGE_TAG:-11.6.0}
+    container_name: grafana
+    restart: unless-stopped
+    user: "472:0"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-CHANGE_ME}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ../../configs/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../data/grafana/data:/var/lib/grafana:rw
+    networks:
+      - proxy-net
+      - monitoring-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`monitor.${DOMAIN}`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  # ----------------------------------------------------------------------------
+  # Loki — Log Aggregation Engine
+  # ----------------------------------------------------------------------------
+  loki:
+    image: grafana/loki:${LOKI_IMAGE_TAG:-3.5.0}
+    container_name: loki
+    restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    command: -config.file=/etc/loki/loki.yaml
+    volumes:
+      - ../../configs/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - ../../data/loki/data:/loki:rw
+    networks:
+      - monitoring-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3100/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ----------------------------------------------------------------------------
+  # Promtail — Docker Container Log Collector Agent
+  # ----------------------------------------------------------------------------
+  promtail:
+    image: grafana/promtail:${PROMTAIL_IMAGE_TAG:-3.5.0}
+    container_name: promtail
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ../../configs/promtail/promtail.yaml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/log:/var/log:ro
+    networks:
+      - monitoring-net
+
+  # ----------------------------------------------------------------------------
+  # Node Exporter — Host System Metrics Exporter
+  # ----------------------------------------------------------------------------
+  node-exporter:
+    image: prom/node-exporter:${NODE_EXPORTER_IMAGE_TAG:-v1.9.1}
+    container_name: node-exporter
+    restart: unless-stopped
+    read_only: true
+    user: "65534:65534"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - monitoring-net
+
+  # ----------------------------------------------------------------------------
+  # cAdvisor — Container Resource Usage Exporter
+  # ----------------------------------------------------------------------------
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:${CADVISOR_IMAGE_TAG:-v0.52.1}
+    container_name: cadvisor
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - monitoring-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ----------------------------------------------------------------------------
+  # Uptime Kuma — Application Uptime & Availability Monitoring
+  # ----------------------------------------------------------------------------
+  uptime-kuma:
+    image: louislam/uptime-kuma:${UPTIME_KUMA_IMAGE_TAG:-1}
+    container_name: uptime-kuma
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ../../data/uptime-kuma/data:/app/data:rw
+    networks:
+      - proxy-net
+      - monitoring-net
+    healthcheck:
+      test: ["CMD-SHELL", "node extra/healthcheck.js || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kuma.rule=Host(`status.${DOMAIN}`)"
+      - "traefik.http.routers.kuma.entrypoints=websecure"
+      - "traefik.http.routers.kuma.tls.certresolver=letsencrypt"
+      - "traefik.http.services.kuma.loadbalancer.server.port=3001"

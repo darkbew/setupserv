@@ -1,0 +1,54 @@
+# ==============================================================================
+# Server Bootstrap Framework — Layer 2 Cloudflare Tunnel Overlay
+# ==============================================================================
+#
+# Description:
+#   Compose overlay specification for Cloudflare Zero Trust Tunnel agent
+#   (cloudflared). Activated when INSTALL_CLOUDFLARE_TUNNEL=yes in .env.
+#
+# Constraints:
+#   - Connects to Traefik via proxy-net (http://traefik:80).
+#   - Requires CLOUDFLARE_TUNNEL_TOKEN set in .env.
+#
+# ==============================================================================
+
+name: platform
+
+networks:
+  proxy-net:
+    external: true
+    name: proxy-net
+
+services:
+  # ----------------------------------------------------------------------------
+  # Cloudflare Tunnel Agent — Zero Trust Ingress Gateway
+  # ----------------------------------------------------------------------------
+  cloudflared:
+    image: cloudflare/cloudflared:${CLOUDFLARED_IMAGE_TAG:-2025.7.0}
+    container_name: cloudflared
+    restart: unless-stopped
+    read_only: true
+    user: "65534:65534"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - proxy-net
+    healthcheck:
+      test: ["CMD-SHELL", "cloudflared --version || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 32M

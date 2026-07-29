@@ -1,0 +1,35 @@
+# ==============================================================================
+# Server Bootstrap Framework — Layer 2 Backup Engine Overlay
+# ==============================================================================
+#
+# Description:
+#   Compose overlay specification for Automated Backup Engine worker.
+#   Runs automated database dumps, file compression, GPG encryption, and rclone sync.
+#   Activated when INSTALL_BACKUP=yes in .env.
+#
+# ==============================================================================
+
+name: platform
+
+networks:
+  backend-net:
+    external: true
+    name: backend-net
+
+services:
+  # ----------------------------------------------------------------------------
+  # Backup Worker — Database Dump & Rclone Offsite Backup Engine
+  # ----------------------------------------------------------------------------
+  backup-worker:
+    image: rclone/rclone:latest
+    container_name: backup-worker
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/bin/sh", "-c", "trap 'exit 0' TERM INT; while true; do sleep 86400; done"]
+    volumes:
+      - ../../backups:/backups:rw
+      - ../../configs:/configs:ro
+      - ../../secrets:/secrets:ro
+    networks:
+      - backend-net
