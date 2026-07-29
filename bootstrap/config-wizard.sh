@@ -229,10 +229,8 @@ main() {
     # Step 1: Select Preset Profile
     select_preset_menu
 
-    # Step 2: Run interactive prompts if Custom or user editing
-    if [[ "${CONFIG_VALUES[PRESET_NAME]:-}" == "Custom" ]]; then
-        run_full_interactive_wizard
-    fi
+    # Step 2: Run interactive prompts for all presets
+    run_full_interactive_wizard
 
     # Step 3: Interactive Review Matrix & Section Editor
     review_and_generate_loop
