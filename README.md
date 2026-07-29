@@ -40,6 +40,7 @@ Mayoritas skrip instalasi server tradisional bersifat *monolithic*, *brittle* (m
 ## 3. Features
 
 - **🚀 Master Orchestrator Engine:** Orkestrasi eksekusi terpusat via `install.sh` dengan penanganan pembatalan sinyal `SIGINT/SIGTERM` yang bersih.
+- **🧙 Interactive Configuration Wizard:** Wizard interaktif metadata-driven yang menghasilkan `.env` secara otomatis dengan validasi input, deployment preset (Development/Staging/Production/Custom), interactive review matrix, dan backup otomatis.
 - **⚡ Selective Step Execution (`--step N`):** Kemampuan mengeksekusi satu modul spesifik (misal hanya instalasi Docker `03` atau verifikasi `06`).
 - **🔄 Smart Resume Capability (`--start-from N`):** Melanjutkan eksekusi dari langkah terakhir yang gagal tanpa perlu mengulang dari awal.
 - **🧪 Dry-Run Mode (`--dry-run`):** Mode simulasi penuh untuk menguji alur instalasi tanpa mengubah state atau konfigurasi sistem.
@@ -64,6 +65,15 @@ bootstrap-framework/
 ├── README.md                   # Dokumentasi resmi enterprise
 ├── bootstrap/
 │   ├── install.sh              # Master Orchestrator & CLI Entrypoint
+│   ├── config-wizard.sh        # Interactive Configuration Wizard Orchestrator
+│   ├── config/                 # Configuration Subsystem Modules
+│   │   ├── wizard-metadata.sh  # Declarative Variable Metadata Registry
+│   │   ├── validators.sh       # Pure Validation Functions Engine
+│   │   ├── prompts.sh          # Terminal UI Prompt Helpers
+│   │   ├── presets.sh          # Deployment Presets (Dev/Staging/Prod/Custom)
+│   │   ├── review.sh           # Interactive Review Matrix & Section Editor
+│   │   ├── generator.sh        # .env.example Parser & Backup Engine
+│   │   └── loader.sh           # .env Loader & Configuration Resolver
 │   ├── 00-preflight.sh         # Step 00: Read-Only System Preflight Guard
 │   ├── 01-system-update.sh     # Step 01: APT Update, Upgrade, Base Tools & Locale
 │   ├── 02-user-setup.sh        # Step 02: Deploy User, Sudoers & SSH Directory
@@ -82,6 +92,13 @@ bootstrap-framework/
                                  │   bootstrap/install.sh    │
                                  │    (Master Orchestrator)  │
                                  └─────────────┬─────────────┘
+                                               │ (No .env? → Wizard)
+                                 ┌─────────────▼─────────────┐
+                                 │   config-wizard.sh        │
+                                 │    (Config Subsystem)     │
+                                 │   + config/*.sh modules   │
+                                 └─────────────┬─────────────┘
+                                               │ (.env generated)
                                                │ (Orchestrates Steps 00–06)
              ┌─────────────────────────────────┼─────────────────────────────────┐
              │                                 │                                 │
@@ -105,8 +122,9 @@ bootstrap-framework/
                                  └───────────────────────────┘
 ```
 
-- **`lib/common.sh` sebagai Core Library:** Seluruh modul (00–06) dan `install.sh` wajib meng-`source` pustaka ini. Pustaka ini mengontrol warna ANSI, *ERR Call Stack Trap*, pembuatan file log `/var/log/bootstrap-framework/`, fungsi validasi sistem, serta fungsi pemanipulasi file yang aman terhadap `DRY_RUN`.
-- **`install.sh` sebagai Master Orchestrator:** Mengatur alur eksekusi, memparsing argumen CLI, mengelola durasi eksekusi, serta menangani kelanjutan *resume* jika terjadi kegagalan.
+- **`lib/common.sh` sebagai Core Library:** Seluruh modul (00–06), `install.sh`, dan `config-wizard.sh` wajib meng-`source` pustaka ini. Pustaka ini mengontrol warna ANSI, *ERR Call Stack Trap*, pembuatan file log `/var/log/bootstrap-framework/`, fungsi validasi sistem, serta fungsi pemanipulasi file yang aman terhadap `DRY_RUN`.
+- **`install.sh` sebagai Master Orchestrator:** Mengatur alur eksekusi, memparsing argumen CLI, mengelola durasi eksekusi, meluncurkan Configuration Wizard bila `.env` tidak tersedia, serta menangani kelanjutan *resume* jika terjadi kegagalan.
+- **`config-wizard.sh` sebagai Configuration Orchestrator:** Mengkoordinasikan pemilihan preset, prompting interaktif per-seksi, review matrix, validasi pra-generasi, dan pembuatan file `.env`.
 
 ---
 
@@ -115,8 +133,8 @@ bootstrap-framework/
 Urutan eksekusi dirancang secara linier dan terurut berdasarkan ketergantungan antar komponen (*strict dependency order*):
 
 ```text
-[Step 00] ➔ [Step 01] ➔ [Step 02] ➔ [Step 03] ➔ [Step 04] ➔ [Step 05] ➔ [Step 06]
- Preflight   SysUpdate    UserSetup    Docker CE    Tailscale    Security     Verify
+[Config Wizard] ➔ [Step 00] ➔ [Step 01] ➔ [Step 02] ➔ [Step 03] ➔ [Step 04] ➔ [Step 05] ➔ [Step 06]
+ .env Setup      Preflight   SysUpdate    UserSetup    Docker CE    Tailscale    Security     Verify
 ```
 
 | Step | Script File | Nama Modul | Deskripsi & Responsibilitas |
@@ -217,11 +235,79 @@ chmod +x bootstrap/install.sh bootstrap/*.sh
 ```
 
 ### Langkah 4: Jalankan Master Installer
-Eksekusi pengatur instalasi utama:
+Eksekusi pengatur instalasi utama (wizard akan diluncurkan secara otomatis bila `.env` belum ada):
 
 ```bash
 sudo bash bootstrap/install.sh
 ```
+
+---
+
+## 7.5. Interactive Configuration Wizard
+
+Framework menyediakan **Interactive Configuration Wizard** yang secara otomatis diluncurkan ketika file `.env` tidak ditemukan, atau dapat dipaksa dengan flag `--wizard`.
+
+### Alur Konfigurasi
+
+```text
+sudo bash bootstrap/install.sh
+        │
+    .env ada?
+     ├── YA ──► "Gunakan konfigurasi yang ada? [Y/n]"
+     │             ├── Y ──► Load .env ──► Jalankan Steps 00–06
+     │             └── N ──► Luncurkan Wizard
+     └── TIDAK ──► Luncurkan Wizard otomatis
+                      │
+                  Wizard Selesai
+                      ├── 1) Install Server ──► Load .env ──► Steps 00–06
+                      ├── 2) Edit .env ────────► ${EDITOR} ──► Menu
+                      └── 3) Exit ─────────────► Keluar
+```
+
+### Deployment Presets
+
+Wizard menyediakan empat profil preset:
+
+| Preset | Docker | Security | Tailscale | Monitoring | Backup | Traefik |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Development** | ✓ | Minimal | ✗ | ✗ | ✗ | ✗ |
+| **Staging** | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| **Production** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Custom** | ? | ? | ? | ? | ? | ? |
+
+### Review Matrix
+
+Sebelum men-generate `.env`, wizard menampilkan review matrix interaktif yang memungkinkan pengguna mengedit seksi tertentu sebelum konfirmasi final:
+
+```text
+══════════════════════════════════════════════════════════
+  CONFIGURATION SUBSYSTEM — REVIEW MATRIX & VALIDATION
+══════════════════════════════════════════════════════════
+
+  [PASS] 1) General     : Hostname: prod-01 | Domain: example.com
+  [PASS] 2) Docker      : Status: yes | Network: bootstrap-net
+  [PASS] 3) Security    : RootLogin: no | UFW: yes | Fail2ban: yes
+  [PASS] 4) Tailscale   : Status: yes | Hostname: prod-01
+  [PASS] 5) Monitoring  : Status: yes | Grafana: yes
+  [PASS] 6) Backup      : Status: yes | Schedule: 0 2 * * *
+  [PASS] 7) Traefik     : Status: yes | User: admin
+  [PASS] 8) Cloudflare  : Status: no
+──────────────────────────────────────────────────────────
+
+  1-8) Edit specific section
+  G)   Generate Configuration & Continue
+  Q)   Quit Wizard
+```
+
+### Validasi & Password Policy
+
+- Semua input divalidasi secara real-time (hostname RFC 1123, domain FQDN, port 1–65535, timezone IANA, cron 5-field, dll.)
+- Password menggunakan `read -s` (hidden input), minimum 12 karakter, evaluasi kekuatan (Weak/Medium/Strong), dan konfirmasi ulang.
+- Password lemah memerlukan konfirmasi eksplisit sebelum diterima.
+
+### Backup `.env`
+
+Jika file `.env` sudah ada saat wizard menghasilkan konfigurasi baru, file lama secara otomatis dicadangkan ke `.env.bak.YYYYMMDD-HHMMSS`.
 
 ---
 
@@ -230,13 +316,21 @@ sudo bash bootstrap/install.sh
 Framework menyediakan berbagai opsi perintah untuk fleksibilitas pengoperasian:
 
 ### 1. Eksekusi Instalasi Penuh (Production Run)
-Menjalankan seluruh langkah dari Step 00 hingga Step 06:
+Menjalankan wizard konfigurasi (jika `.env` belum ada) kemudian seluruh langkah dari Step 00 hingga Step 06:
 
 ```bash
 sudo bash bootstrap/install.sh
 ```
 
-### 2. Mode Simulasi (Dry-Run Mode)
+### 2. Force Configuration Wizard
+Memaksa peluncuran Configuration Wizard meskipun `.env` sudah tersedia:
+
+```bash
+sudo bash bootstrap/install.sh --wizard
+sudo bash bootstrap/install.sh -w
+```
+
+### 3. Mode Simulasi (Dry-Run Mode)
 Menyelimuti seluruh perintah mutasi sehingga Anda dapat melihat simulasi tanpa mengubah sistem:
 
 ```bash
@@ -245,21 +339,21 @@ sudo bash bootstrap/install.sh --dry-run
 DRY_RUN=true sudo bash bootstrap/install.sh
 ```
 
-### 3. Eksekusi Modul Selektif (`--step STEP`)
+### 4. Eksekusi Modul Selektif (`--step STEP`)
 Menjalankan hanya satu modul tertentu (contoh: hanya instalasi Docker `03`):
 
 ```bash
 sudo bash bootstrap/install.sh --step 03
 ```
 
-### 4. Mode Resume / Start From (`--start-from STEP`)
+### 5. Mode Resume / Start From (`--start-from STEP`)
 Melanjutkan instalasi mulai dari langkah tertentu hingga akhir (contoh: melanjutkan dari Step 04):
 
 ```bash
 sudo bash bootstrap/install.sh --start-from 04
 ```
 
-### 5. Verifikasi Kesehatan Sistem Berdiri Sendiri (Standalone Verify)
+### 6. Verifikasi Kesehatan Sistem Berdiri Sendiri (Standalone Verify)
 Menjalankan mesin verifikasi kapan saja untuk memeriksa kondisi server saat ini:
 
 ```bash

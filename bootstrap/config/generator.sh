@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Server Bootstrap Framework — .env Generator & Backup Engine
+# ==============================================================================
+#
+# Description:
+#   Parses .env.example line-by-line, preserving all comments, section headers,
+#   blank lines, formatting, and key order. Replaces variable values from
+#   CONFIG_VALUES associative array and generates timestamped backups.
+#
+# Constraints:
+#   - Must use write_config() and backup_config() from lib/common.sh
+#   - Must adhere to set -Eeuo pipefail
+#
+# ==============================================================================
+
+# Guard against double-sourcing
+if [[ -n "${_CONFIG_GENERATOR_SH_LOADED:-}" ]]; then
+    return 0
+fi
+_CONFIG_GENERATOR_SH_LOADED=1
+
+# Ensure global associative array exists
+declare -A CONFIG_VALUES 2>/dev/null || true
+
+# Compute dynamic COMPOSE_PROFILES value based on enabled stacks
+compute_compose_profiles() {
+    local profiles=("production")
+
+    local mon="${CONFIG_VALUES[INSTALL_MONITORING]:-no}"
+    if [[ "${mon,,}" =~ ^(yes|y|true|1)$ ]]; then
+        profiles+=("monitoring")
+    fi
+
+    local bak="${CONFIG_VALUES[INSTALL_BACKUP]:-no}"
+    if [[ "${bak,,}" =~ ^(yes|y|true|1)$ ]]; then
+        profiles+=("backup")
+    fi
+
+    local IFS=','
+    echo "${profiles[*]}"
+}
+
+# Generate .env file from .env.example template
+generate_env_file() {
+    local project_root="$1"
+    local env_example="${project_root}/.env.example"
+    local env_target="${project_root}/.env"
+
+    if [[ ! -f "${env_example}" ]]; then
+        log_error "Template file not found: ${env_example}"
+        return 1
+    fi
+
+    log_info "Parsing .env.example template..."
+
+    # Pre-compute COMPOSE_PROFILES
+    CONFIG_VALUES["COMPOSE_PROFILES"]="$(compute_compose_profiles)"
+
+    local generated_content=""
+    local line key val
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        # Preserve comments, blank lines, lines without =
+        if [[ -z "${line}" ]] || [[ "${line}" =~ ^[[:space:]]*# ]] || [[ "${line}" != *"="* ]]; then
+            generated_content+="${line}"$'\n'
+            continue
+        fi
+
+        # Extract key
+        key="${line%%=*}"
+        key="${key// /}"
+
+        # If key exists in CONFIG_VALUES, replace value
+        if [[ -n "${key}" ]] && [[ -v "CONFIG_VALUES[${key}]" ]]; then
+            val="${CONFIG_VALUES[${key}]}"
+            generated_content+="${key}=${val}"$'\n'
+        else
+            # Preserve original line from .env.example if not explicitly overridden
+            generated_content+="${line}"$'\n'
+        fi
+    done < "${env_example}"
+
+    # Backup existing .env file if it exists
+    if [[ -f "${env_target}" ]]; then
+        local timestamp
+        timestamp=$(date +%Y%m%d-%H%M%S)
+        local backup_path="${env_target}.bak.${timestamp}"
+        safe_cp "${env_target}" "${backup_path}"
+        log_info "Created timestamped backup: ${backup_path}"
+    fi
+
+    # Write generated configuration using write_config
+    write_config "${env_target}" "${generated_content}" "600"
+    log_success "Generated environment file: ${env_target}"
+}

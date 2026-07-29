@@ -5,11 +5,13 @@
 #
 # Master orchestrator for server bootstrap.
 # Runs all bootstrap scripts in sequence or selectively.
+# Integrates the Interactive Configuration Wizard subsystem.
 #
 # Single Entry Point:
 #   sudo bash bootstrap/install.sh
 #
 # Features:
+#   - Interactive Configuration Wizard (.env generation)
 #   - Runs all bootstrap steps (00–06) in sequence
 #   - Supports selective execution (--step N)
 #   - Supports resume / start from step (--start-from N)
@@ -21,6 +23,7 @@
 #
 # Usage:
 #   sudo bash bootstrap/install.sh                  # Full production run
+#   sudo bash bootstrap/install.sh --wizard         # Force Configuration Wizard
 #   sudo bash bootstrap/install.sh --dry-run        # Simulate full run
 #   sudo bash bootstrap/install.sh --step 03        # Execute step 03 only
 #   sudo bash bootstrap/install.sh --start-from 03  # Resume from step 03
@@ -34,6 +37,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # === Default Runtime Flags ===
 DRY_RUN="${DRY_RUN:-false}"
+FORCE_WIZARD="false"
 SINGLE_STEP=""
 START_FROM_STEP=""
 
@@ -41,6 +45,7 @@ START_FROM_STEP=""
 usage() {
     printf 'Usage: sudo bash %s [OPTIONS]\n\n' "$0"
     printf 'Options:\n'
+    printf '  --wizard, -w         Force launch Interactive Configuration Wizard\n'
     printf '  --dry-run, -d        Simulate without making changes\n'
     printf '  --step, -s STEP      Run specific step only (e.g., 00, 03, 06)\n'
     printf '  --start-from, -r STEP Resume or start from specific step (e.g., 03)\n'
@@ -54,6 +59,10 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --wizard|-w)
+            FORCE_WIZARD="true"
+            shift
+            ;;
         --dry-run|-d)
             DRY_RUN="true"
             shift
@@ -86,13 +95,97 @@ export LOG_DIR="${LOG_DIR:-/var/log/bootstrap-framework}"
 # shellcheck source=lib/common.sh
 source "${BOOTSTRAP_DIR}/lib/common.sh"
 
-# === Load Environment ===
-if [[ -f "${PROJECT_ROOT}/.env" ]]; then
-    load_env "${PROJECT_ROOT}/.env"
-fi
-
 # Share log file with all child scripts
 export LOG_FILE
+
+# ==============================================================================
+# CONFIGURATION RESOLUTION
+# ==============================================================================
+
+# Resolve .env configuration via wizard or existing file.
+# Returns 0 if bootstrap should proceed, exits otherwise.
+resolve_configuration() {
+    local wizard_script="${BOOTSTRAP_DIR}/config-wizard.sh"
+    local need_wizard=false
+
+    # Case 1: --wizard flag was explicitly passed
+    if [[ "${FORCE_WIZARD}" == "true" ]]; then
+        need_wizard=true
+    fi
+
+    # Case 2: .env does not exist — wizard is mandatory
+    if [[ ! -f "${PROJECT_ROOT}/.env" ]]; then
+        log_info "No .env configuration file found"
+        need_wizard=true
+    fi
+
+    # Case 3: .env exists but wizard was not forced — ask user
+    if [[ -f "${PROJECT_ROOT}/.env" ]] && [[ "${FORCE_WIZARD}" != "true" ]] && [[ "${need_wizard}" != "true" ]]; then
+        printf '\n'
+        printf '  %sExisting configuration detected:%s %s/.env\n' "${BOLD}" "${NC}" "${PROJECT_ROOT}"
+        printf '\n'
+
+        local reuse_input=""
+        while true; do
+            printf '  %sReuse existing configuration?%s [%sY/n%s]: ' "${BOLD}" "${NC}" "${CYAN}" "${NC}"
+            read -r reuse_input || reuse_input="yes"
+            reuse_input="${reuse_input:-yes}"
+
+            case "${reuse_input,,}" in
+                y|yes)
+                    log_success "Reusing existing configuration"
+                    load_env "${PROJECT_ROOT}/.env"
+                    return 0
+                    ;;
+                n|no)
+                    need_wizard=true
+                    break
+                    ;;
+                *)
+                    printf '    %s[ERROR]%s Please enter '\''y'\'' or '\''n'\''\n' "${RED}" "${NC}"
+                    ;;
+            esac
+        done
+    fi
+
+    # Launch Configuration Wizard
+    if [[ "${need_wizard}" == "true" ]]; then
+        if [[ ! -f "${wizard_script}" ]]; then
+            log_error "Configuration Wizard not found: ${wizard_script}"
+            log_error "Cannot generate .env without the wizard. Aborting."
+            exit 1
+        fi
+
+        local wizard_action_file="${PROJECT_ROOT}/.wizard_action"
+
+        log_info "Launching Interactive Configuration Wizard..."
+        if bash "${wizard_script}"; then
+            # Read wizard exit action from IPC file
+            local wizard_action="EXIT"
+            if [[ -f "${wizard_action_file}" ]]; then
+                wizard_action=$(cat "${wizard_action_file}")
+                rm -f "${wizard_action_file}"
+            fi
+
+            if [[ "${wizard_action}" == "EXIT" ]]; then
+                log_info "Wizard completed. User chose to exit."
+                exit 0
+            fi
+        else
+            rm -f "${wizard_action_file}" 2>/dev/null || true
+            log_error "Configuration Wizard failed"
+            exit 1
+        fi
+    fi
+
+    # Load the generated/existing .env
+    if [[ -f "${PROJECT_ROOT}/.env" ]]; then
+        load_env "${PROJECT_ROOT}/.env"
+    else
+        log_error "No .env file available after wizard completion. Aborting."
+        exit 1
+    fi
+}
 
 # ==============================================================================
 # STEP RUNNER
@@ -187,6 +280,9 @@ main() {
     trap 'log_error "Bootstrap execution interrupted by user (SIGINT/SIGTERM)"; exit 130' INT TERM
 
     print_header "Bootstrap Installer" "Production server setup orchestrator"
+
+    # Resolve configuration (.env) via wizard or existing file
+    resolve_configuration
 
     local start_time
     start_time=$(date +%s)
