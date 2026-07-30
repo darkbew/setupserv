@@ -175,6 +175,43 @@ else
     exit 1
 fi
 
+# Wait for containers to become healthy before verification
+log_info "Waiting for platform containers to pass health checks..."
+max_wait=60
+elapsed=0
+all_healthy=false
+
+while [[ "${elapsed}" -lt "${max_wait}" ]]; do
+    healthy=true
+
+    for cname in "docker-socket-proxy" "traefik"; do
+        if docker ps --format '{{.Names}}' | grep -q "^${cname}$"; then
+            status=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${cname}" 2>/dev/null || echo "unknown")
+            if [[ "${status}" != "healthy" ]] && [[ "${status}" != "running" ]]; then
+                healthy=false
+                break
+            fi
+        else
+            healthy=false
+            break
+        fi
+    done
+
+    if [[ "${healthy}" == "true" ]]; then
+        all_healthy=true
+        break
+    fi
+
+    sleep 2
+    elapsed=$((elapsed + 2))
+done
+
+if [[ "${all_healthy}" == "true" ]]; then
+    log_success "All platform containers healthy (${elapsed}s)"
+else
+    log_warn "Some containers not yet healthy after ${max_wait}s — proceeding with verification"
+fi
+
 # Invoke Platform Verification Script
 VERIFY_SCRIPT="${SCRIPT_DIR}/verify-platform.sh"
 if [[ -f "${VERIFY_SCRIPT}" ]]; then
