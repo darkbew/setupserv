@@ -346,6 +346,31 @@ main() {
     local seconds=$((duration % 60))
 
     print_summary "${minutes}" "${seconds}"
+
+    # Prompt user whether to deploy Layer 2 Platform Infrastructure
+    local deploy_script="${PROJECT_ROOT}/scripts/deploy-platform.sh"
+    if [[ -z "${SINGLE_STEP:-}" ]] && [[ -f "${deploy_script}" ]]; then
+        printf '\n'
+        printf '  %sProceed to deploy Layer 2 Platform Infrastructure (Traefik Proxy & Platform Services)?%s [%sY/n%s]: ' "${BOLD}" "${NC}" "${CYAN}" "${NC}"
+        local deploy_input=""
+        read -r deploy_input || deploy_input="yes"
+        deploy_input="${deploy_input:-yes}"
+
+        case "${deploy_input,,}" in
+            y|yes)
+                log_section "Launching Layer 2 Platform Infrastructure"
+                if bash "${deploy_script}"; then
+                    log_success "Layer 2 Platform Infrastructure deployed successfully"
+                else
+                    log_error "Layer 2 Platform deployment failed"
+                    exit 1
+                fi
+                ;;
+            *)
+                log_info "Skipping Layer 2 deployment. You can deploy Layer 2 later by running: make platform"
+                ;;
+        esac
+    fi
 }
 
 main "$@"

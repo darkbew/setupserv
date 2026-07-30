@@ -106,6 +106,9 @@ generate_env_file() {
         # If key exists in CONFIG_VALUES, replace value
         if [[ -n "${key}" ]] && [[ -v "CONFIG_VALUES[${key}]" ]]; then
             val="${CONFIG_VALUES[${key}]}"
+            if [[ "${val}" =~ [[:space:]] ]] && [[ ! "${val}" =~ ^\".*\"$ ]]; then
+                val="\"${val}\""
+            fi
             generated_content+="${key}=${val}"$'\n'
         else
             # Preserve original line from .env.example if not explicitly overridden
