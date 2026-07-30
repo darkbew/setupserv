@@ -114,7 +114,7 @@ else
 fi
 
 # 5. Image Tag Pinning Check (No :latest)
-sp_tag="${SOCKET_PROXY_IMAGE_TAG:-v0.1.1}"
+sp_tag="${SOCKET_PROXY_IMAGE_TAG:-0.1.1}"
 if [[ "${sp_tag}" != "latest" ]] && [[ "${sp_tag}" != ":latest" ]]; then
     check_result "Socket Proxy Tag Pinning" "PASS" "Pinned tag: ${sp_tag}"
 else
