@@ -36,13 +36,13 @@ services:
     container_name: docker-socket-proxy
     restart: unless-stopped
     read_only: true
-    user: "65534:65534"
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     tmpfs:
       - /tmp
+      - /run
     environment:
       - CONTAINERS=1
       - NETWORKS=1
