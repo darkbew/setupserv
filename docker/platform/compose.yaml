@@ -32,7 +32,7 @@ services:
   # Docker Socket Proxy — Secure API Firewall over /var/run/docker.sock
   # ----------------------------------------------------------------------------
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:${SOCKET_PROXY_IMAGE_TAG:-0.1.1}
+    image: tecnativa/docker-socket-proxy:${SOCKET_PROXY_IMAGE_TAG:-0.3.0}
     container_name: docker-socket-proxy
     restart: unless-stopped
     read_only: true
@@ -91,6 +91,11 @@ services:
       - NET_BIND_SERVICE
     tmpfs:
       - /tmp
+    command:
+      - "--configFile=/etc/traefik/traefik.yaml"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ADMIN_EMAIL:-admin@example.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/etc/traefik/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
     ports:
       - "80:80"
       - "443:443"
@@ -113,8 +118,8 @@ services:
       test: ["CMD-SHELL", "traefik healthcheck --ping"]
       interval: 5s
       timeout: 3s
-      retries: 3
-      start_period: 2s
+      retries: 5
+      start_period: 10s
     deploy:
       resources:
         limits:
@@ -123,8 +128,3 @@ services:
         reservations:
           cpus: '0.10'
           memory: 64M
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.ping.rule=Path(`/ping`)"
-      - "traefik.http.routers.ping.entrypoints=traefik"
-      - "traefik.http.routers.ping.service=ping@internal"

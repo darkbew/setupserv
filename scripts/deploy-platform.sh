@@ -54,7 +54,7 @@ if [[ -z "${raw_admin_email}" ]] || [[ "${raw_admin_email,,}" =~ ^(admin@example
 else
     export ADMIN_EMAIL="${raw_admin_email}"
 fi
-export SOCKET_PROXY_IMAGE_TAG="${SOCKET_PROXY_IMAGE_TAG:-0.1.1}"
+export SOCKET_PROXY_IMAGE_TAG="${SOCKET_PROXY_IMAGE_TAG:-0.3.0}"
 
 log_info "Effective Let's Encrypt Admin Email: ${ADMIN_EMAIL}"
 log_info "Effective Socket Proxy Image Tag: ${SOCKET_PROXY_IMAGE_TAG}"

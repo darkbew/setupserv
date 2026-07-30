@@ -25,7 +25,6 @@ accessLog:
 # Ping Healthcheck Endpoint (used by container healthcheck)
 ping:
   entryPoint: traefik
-  manualRouting: true
 
 # EntryPoints Configuration
 entryPoints:
@@ -64,11 +63,8 @@ providers:
     directory: "/etc/traefik/dynamic"
     watch: true
 
-# Let's Encrypt Certificate Resolver Configuration
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      email: "${ADMIN_EMAIL}"
-      storage: "/etc/traefik/acme.json"
-      httpChallenge:
-        entryPoint: web
+
+# NOTE: certificatesResolvers (Let's Encrypt ACME) is configured via
+# CLI arguments in docker/platform/compose.yaml to support dynamic
+# ADMIN_EMAIL from .env. Traefik static YAML does NOT support
+# environment variable substitution.
