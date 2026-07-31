@@ -7,9 +7,9 @@
 #   Initializes host data directories, sets volume permissions,
 #   verifies required configuration files, validates Cloudflare Tunnel Token,
 #   creates required external Docker bridge networks (proxy-net, backend-net,
-#   monitoring-net), constructs compose overlay chain, and launches Layer 2
-#   platform services (Traefik v3, Socket Proxy, Cloudflared, Prometheus, Grafana,
-#   Node Exporter, Uptime Kuma, Dozzle).
+#   monitoring-net), constructs compose overlay chain, cleans legacy container conflicts,
+#   and launches Layer 2 platform services (Traefik v3, Socket Proxy, Cloudflared,
+#   Prometheus, Grafana, Node Exporter, Uptime Kuma, Dozzle).
 #
 # Constraints & Architecture:
 #   - Cloudflare Tunnel Ingress Architecture (No host ports 80/443 exposed).
@@ -39,10 +39,12 @@ else
     log_section() { printf '\n\033[1m=== %s ===\033[0m\n' "$*"; }
 fi
 
-# Load active environment variables
+# Load active environment variables into exported subshell context
 if [[ -f "${PROJECT_ROOT}/.env" ]]; then
+    set -a
     # shellcheck disable=SC1091
     source "${PROJECT_ROOT}/.env"
+    set +a
     log_info "Loaded active configuration: ${PROJECT_ROOT}/.env"
 else
     log_warn "No .env file found at ${PROJECT_ROOT}/.env — using default fallbacks"
@@ -136,6 +138,10 @@ if [[ -f "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml" ]]; then
     log_info "Added Compose Overlay: compose.tunnel.yaml"
 fi
 
+if [[ -f "${PROJECT_ROOT}/.env" ]]; then
+    COMPOSE_ARGS=("--env-file" "${PROJECT_ROOT}/.env" "${COMPOSE_ARGS[@]}")
+fi
+
 expected_containers=(
     "docker-socket-proxy"
     "traefik"
@@ -147,9 +153,17 @@ expected_containers=(
     "dozzle"
 )
 
-# Launch Layer 2 Containers via Docker Compose (recreating to apply zero-host-port spec)
+# Pre-deployment conflict cleanup: Remove any old/conflicting container names
+log_info "Clearing lingering container name conflicts..."
+for cname in "${expected_containers[@]}"; do
+    if docker ps -a --format '{{.Names}}' | grep -q "^${cname}$"; then
+        docker rm -f "${cname}" >/dev/null 2>&1 || true
+    fi
+done
+
+# Launch Layer 2 Containers via Docker Compose
 log_info "Deploying Layer 2 platform containers with Docker Compose..."
-if docker compose "${COMPOSE_ARGS[@]}" up -d --remove-orphans --force-recreate; then
+if docker compose "${COMPOSE_ARGS[@]}" up -d --remove-orphans; then
     log_success "Layer 2 containers started successfully"
 else
     log_error "Failed to deploy Layer 2 platform containers"

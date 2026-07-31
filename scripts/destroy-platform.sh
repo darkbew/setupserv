@@ -4,12 +4,13 @@
 # ==============================================================================
 #
 # Description:
-#   Gracefully stops and removes Layer 2 platform containers using Docker Compose down.
+#   Gracefully stops and removes Layer 2 platform containers across all Compose overlays.
+#   Performs force cleanup of lingering platform containers to prevent name conflicts.
 #   Does NOT delete persistent data in data/, configuration files in configs/,
 #   or the global .env file.
 #
 # Usage:
-#   sudo bash scripts/destroy-platform.sh
+#   bash scripts/destroy-platform.sh
 #
 # Constraints:
 #   - Must adhere to set -Eeuo pipefail
@@ -42,10 +43,40 @@ if [[ ! -f "${COMPOSE_BASE}" ]]; then
     exit 1
 fi
 
-if docker compose -f "${COMPOSE_BASE}" down; then
-    log_success "Layer 2 platform containers stopped and removed"
-    log_info "Persistent data preserved in: ${PROJECT_ROOT}/data/"
-else
-    log_error "Failed to cleanly stop Layer 2 containers"
-    exit 1
+COMPOSE_ARGS=("-f" "${COMPOSE_BASE}")
+
+if [[ -f "${PROJECT_ROOT}/docker/platform/compose.monitoring.yaml" ]]; then
+    COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.monitoring.yaml")
 fi
+
+if [[ -f "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml" ]]; then
+    COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml")
+fi
+
+if [[ -f "${PROJECT_ROOT}/.env" ]]; then
+    COMPOSE_ARGS=("--env-file" "${PROJECT_ROOT}/.env" "${COMPOSE_ARGS[@]}")
+fi
+
+log_info "Stopping Layer 2 platform containers with Docker Compose..."
+docker compose "${COMPOSE_ARGS[@]}" down --remove-orphans >/dev/null 2>&1 || true
+
+# Force cleanup of any lingering platform containers by name to prevent recreate conflicts
+platform_containers=(
+    "docker-socket-proxy"
+    "traefik"
+    "cloudflared"
+    "prometheus"
+    "grafana"
+    "node-exporter"
+    "uptime-kuma"
+    "dozzle"
+)
+
+for cname in "${platform_containers[@]}"; do
+    if docker ps -a --format '{{.Names}}' | grep -q "^${cname}$"; then
+        docker rm -f "${cname}" >/dev/null 2>&1 || true
+    fi
+done
+
+log_success "Layer 2 platform containers stopped and removed"
+log_info "Persistent data preserved in: ${PROJECT_ROOT}/data/"

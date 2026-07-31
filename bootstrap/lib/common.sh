@@ -86,6 +86,11 @@ fi
 DRY_RUN="${DRY_RUN:-false}"
 LOG_DIR="${LOG_DIR:-/var/log/bootstrap-framework}"
 
+# Fallback to local project logs directory if /var/log/bootstrap-framework is not writeable
+if [[ ! -w "${LOG_DIR}" ]] && ! mkdir -p "${LOG_DIR}" 2>/dev/null; then
+    LOG_DIR="${PROJECT_ROOT:-.}/logs/platform"
+fi
+
 if [[ -z "${LOG_FILE:-}" ]]; then
     _log_timestamp=$(date +%Y%m%d-%H%M%S)
     LOG_FILE="${LOG_DIR}/bootstrap-${_log_timestamp}.log"
@@ -108,14 +113,13 @@ _log() {
 
     # Initialize log directory on first write
     if [[ -z "${_log_init_done}" ]] && [[ "${DRY_RUN}" != "true" ]]; then
-        mkdir -p "${LOG_DIR}" 2>/dev/null && chmod 750 "${LOG_DIR}" 2>/dev/null || true
+        mkdir -p "${LOG_DIR}" 2>/dev/null || true
         _log_init_done=1
     fi
 
-    # Write to persistent log file
-    if [[ "${DRY_RUN}" != "true" ]]; then
-        printf '[%s] [%-7s] %s\n' "${timestamp}" "${level}" "${message}" \
-            >> "${LOG_FILE}" 2>/dev/null || true
+    # Write to persistent log file cleanly without throwing redirection errors to stdout/stderr
+    if [[ "${DRY_RUN}" != "true" ]] && [[ -n "${LOG_FILE:-}" ]]; then
+        { printf '[%s] [%-7s] %s\n' "${timestamp}" "${level}" "${message}" >> "${LOG_FILE}"; } 2>/dev/null || true
     fi
 
     # Write to console with ANSI colors
@@ -142,8 +146,8 @@ log_section() {
     printf '%s  %s%s\n' "${BOLD}" "${title}" "${NC}"
     printf '%s══════════════════════════════════════════════════════%s\n' "${BOLD}" "${NC}"
     printf '\n'
-    if [[ "${DRY_RUN}" != "true" ]]; then
-        printf '\n== %s ==\n' "${title}" >> "${LOG_FILE}" 2>/dev/null || true
+    if [[ "${DRY_RUN}" != "true" ]] && [[ -n "${LOG_FILE:-}" ]]; then
+        { printf '\n== %s ==\n' "${title}" >> "${LOG_FILE}"; } 2>/dev/null || true
     fi
 }
 
