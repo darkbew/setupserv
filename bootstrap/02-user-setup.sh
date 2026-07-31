@@ -161,8 +161,16 @@ configure_ssh_directory() {
 prepare_docker_group() {
     local deploy_user="${DEPLOY_USER:-${OPERATIONAL_USER:-deploy}}"
 
-    log_info "Preparing 'docker' group membership..."
+    log_info "Preparing 'docker' group membership for '${deploy_user}'..."
 
+    # Detect if Docker is installed
+    if command -v docker >/dev/null 2>&1; then
+        log_info "Docker Engine detected on system"
+    else
+        log_warn "Docker binary not detected yet — pre-creating system group and assignment for future Docker installation"
+    fi
+
+    # Create docker group idempotently
     if getent group docker >/dev/null 2>&1; then
         log_info "Group 'docker' already exists"
     else
@@ -174,8 +182,9 @@ prepare_docker_group() {
         fi
     fi
 
+    # Attach deploy user to docker group idempotently
     if id -nG "${deploy_user}" 2>/dev/null | grep -qw docker; then
-        log_info "User '${deploy_user}' is already member of group 'docker'"
+        log_info "User '${deploy_user}' is already a member of 'docker' group"
     else
         if [[ "${DRY_RUN}" == "true" ]]; then
             log_dry "Would add user ${deploy_user} to group: docker"
@@ -183,6 +192,33 @@ prepare_docker_group() {
             usermod -aG docker "${deploy_user}"
             log_success "Added '${deploy_user}' to group: docker"
         fi
+    fi
+}
+
+# Synchronize repository to shared platform directory /opt/setupserv idempotently
+migrate_repository_to_opt() {
+    local deploy_user="${DEPLOY_USER:-${OPERATIONAL_USER:-deploy}}"
+    local target_dir="/opt/setupserv"
+
+    log_info "Preparing shared repository directory at '${target_dir}'..."
+
+    if [[ "${PROJECT_ROOT}" != "${target_dir}" ]]; then
+        log_info "Synchronizing repository from '${PROJECT_ROOT}' to '${target_dir}' for user '${deploy_user}'..."
+
+        if [[ "${DRY_RUN}" == "true" ]]; then
+            log_dry "Would copy ${PROJECT_ROOT} -> ${target_dir} and set ownership to ${deploy_user}:${deploy_user}"
+            return 0
+        fi
+
+        mkdir -p "${target_dir}"
+        cp -a "${PROJECT_ROOT}/." "${target_dir}/"
+        chown -R "${deploy_user}:${deploy_user}" "${target_dir}"
+        log_success "Repository successfully synchronized to '${target_dir}' (Ownership: ${deploy_user}:${deploy_user})"
+    else
+        if [[ "${DRY_RUN}" != "true" ]]; then
+            chown -R "${deploy_user}:${deploy_user}" "${target_dir}"
+        fi
+        log_info "Repository already operating in '${target_dir}'"
     fi
 }
 
@@ -205,11 +241,26 @@ verify_user_setup() {
         exit 1
     fi
 
+    local user_id_out user_groups_out docker_group_out
+    user_id_out=$(id "${deploy_user}" 2>/dev/null || echo "unknown")
+    user_groups_out=$(groups "${deploy_user}" 2>/dev/null || echo "unknown")
+    docker_group_out=$(getent group docker 2>/dev/null || echo "unknown")
+
     printf '  Home Directory:  %s\n' "${user_home}"
     printf '  Sudoers File:    %s (440)\n' "${sudoers_file}"
     printf '  SSH Directory:   %s/.ssh (700)\n' "${user_home}"
     printf '  Authorized Keys: %s/.ssh/authorized_keys (600)\n' "${user_home}"
-    printf '  Docker Group:    Member\n'
+    printf '  id output:       %s\n' "${user_id_out}"
+    printf '  groups output:   %s\n' "${user_groups_out}"
+    printf '  getent docker:   %s\n' "${docker_group_out}"
+
+    if command -v docker >/dev/null 2>&1; then
+        if sudo -u "${deploy_user}" -H docker info >/dev/null 2>&1; then
+            log_success "User '${deploy_user}' has verified non-root socket access to Docker Engine"
+        else
+            log_info "Group membership updated. Active SSH sessions require logout/login (or 'exec su -l ${deploy_user}') for 'docker' group token to take effect."
+        fi
+    fi
     printf '\n'
 }
 
@@ -240,6 +291,9 @@ main() {
 
     log_section "Docker Group Attachment"
     prepare_docker_group
+
+    log_section "Shared Repository Setup (/opt/setupserv)"
+    migrate_repository_to_opt
 
     verify_user_setup
     log_success "Deploy user setup completed successfully for '${deploy_user}'"

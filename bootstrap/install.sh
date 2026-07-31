@@ -259,10 +259,11 @@ print_summary() {
     if command -v tailscale > /dev/null 2>&1 && [[ "${tailscale_ip}" != "not configured" ]]; then
         printf '  1. SSH via Tailscale: ssh %s@%s\n' "${deploy_user}" "${tailscale_ip}"
     else
-        printf '  1. SSH to the server and verify login as user '\''%s'\''\n' "${deploy_user}"
+        printf '  1. SSH to the server and login as user '\''%s'\''\n' "${deploy_user}"
     fi
-    printf '  2. Verify SSH key login works\n'
-    printf '  3. Disable password auth (Phase 2):\n'
+    printf '  2. Masuk ke direktori platform: cd /opt/setupserv\n'
+    printf '  3. Verify SSH key login works\n'
+    printf '  4. Disable password auth (Phase 2):\n'
     printf '     sudo sed -i '\''s/^PasswordAuthentication yes$/PasswordAuthentication no/'\'' \\\n'
     printf '         /etc/ssh/sshd_config.d/99-bootstrap-hardening.conf\n'
     printf '     sudo systemctl reload ssh\n'
@@ -348,7 +349,16 @@ main() {
     print_summary "${minutes}" "${seconds}"
 
     # Prompt user whether to deploy Layer 2 Platform Infrastructure
-    local deploy_script="${PROJECT_ROOT}/scripts/deploy-platform.sh"
+    # After bootstrap, repository has been synced to /opt/setupserv by 02-user-setup.sh
+    local platform_root="/opt/setupserv"
+    local deploy_script="${platform_root}/scripts/deploy-platform.sh"
+
+    # Fallback: if /opt/setupserv does not exist yet (e.g. --step mode), use original PROJECT_ROOT
+    if [[ ! -d "${platform_root}" ]]; then
+        platform_root="${PROJECT_ROOT}"
+        deploy_script="${PROJECT_ROOT}/scripts/deploy-platform.sh"
+    fi
+
     if [[ -z "${SINGLE_STEP:-}" ]] && [[ -f "${deploy_script}" ]]; then
         printf '\n'
         printf '  %sProceed to deploy Layer 2 Platform Infrastructure (Traefik Proxy & Platform Services)?%s [%sY/n%s]: ' "${BOLD}" "${NC}" "${CYAN}" "${NC}"
@@ -359,6 +369,7 @@ main() {
         case "${deploy_input,,}" in
             y|yes)
                 log_section "Launching Layer 2 Platform Infrastructure"
+                export PROJECT_ROOT="${platform_root}"
                 if bash "${deploy_script}"; then
                     log_success "Layer 2 Platform Infrastructure deployed successfully"
                 else
@@ -367,10 +378,32 @@ main() {
                 fi
                 ;;
             *)
-                log_info "Skipping Layer 2 deployment. You can deploy Layer 2 later by running: make platform"
+                log_info "Skipping Layer 2 deployment. You can deploy Layer 2 later by running:"
+                log_info "  su - ${deploy_user} -c 'cd ${platform_root} && make platform'"
                 ;;
         esac
     fi
+
+    # Print final operational instructions
+    local deploy_user="${DEPLOY_USER:-${OPERATIONAL_USER:-deploy}}"
+    printf '\n'
+    printf '  %s══════════════════════════════════════════════════════════════%s\n' "${BOLD}" "${NC}"
+    printf '  %s  PENTING: LANGKAH SELANJUTNYA                             %s\n' "${BOLD}" "${NC}"
+    printf '  %s══════════════════════════════════════════════════════════════%s\n' "${BOLD}" "${NC}"
+    printf '\n'
+    printf '  Repository telah disalin ke: %s%s%s\n' "${GREEN}" "${platform_root}" "${NC}"
+    printf '  Kepemilikan: %s%s:%s%s\n' "${GREEN}" "${deploy_user}" "${deploy_user}" "${NC}"
+    printf '\n'
+    printf '  Untuk operasional harian, gunakan user %s%s%s:\n' "${CYAN}" "${deploy_user}" "${NC}"
+    printf '\n'
+    printf '    %ssu - %s%s\n' "${BOLD}" "${deploy_user}" "${NC}"
+    printf '    %scd %s%s\n' "${BOLD}" "${platform_root}" "${NC}"
+    printf '\n'
+    printf '  Semua perintah Docker dapat dijalankan TANPA sudo:\n'
+    printf '    make platform        # Deploy Layer 2\n'
+    printf '    make verify          # Verifikasi Platform\n'
+    printf '    docker compose ps    # Lihat container aktif\n'
+    printf '\n'
 }
 
 main "$@"

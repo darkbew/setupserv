@@ -52,6 +52,29 @@ All platform container specs MUST pin explicit versions (`traefik:3.4`, `tecnati
 
 ---
 
+## Repository Location & User Workflow
+
+### Automatic Migration to `/opt/setupserv`
+
+Selama proses bootstrap (`02-user-setup.sh`), repository secara otomatis disalin dari lokasi `git clone` awal (misalnya `/home/ubuntu/setupserv`) ke `/opt/setupserv`. Folder `/opt/setupserv` kemudian dimiliki sepenuhnya oleh user `deploy`.
+
+### Alur Operasional Standar
+
+```text
+User Pertama (ubuntu)                    User Operasional (deploy)
+─────────────────────                    ─────────────────────────
+1. SSH ke server                         4. su - deploy
+2. git clone <repo> setupserv            5. cd /opt/setupserv
+3. sudo bash bootstrap/install.sh        6. make platform ← tanpa sudo
+   ↓                                     7. make verify
+   Otomatis menyalin ke /opt/setupserv   8. docker compose ps
+   Otomatis set ownership deploy:deploy
+```
+
+Setelah bootstrap selesai, **seluruh operasional harian dilakukan dari user `deploy` di `/opt/setupserv`**. User pertama (`ubuntu`) tidak perlu digunakan lagi kecuali untuk maintenance OS (misalnya `apt upgrade`).
+
+---
+
 ## Network Architecture & Isolation Rules
 
 The platform creates three external bridge networks:
@@ -94,7 +117,28 @@ networks:
 
 ---
 
+## Linux Non-Root Access & Docker Group Security Policy
+
+### Operational Non-Root Access
+The framework automatically provisions the operational user `${DEPLOY_USER}` (default: `deploy`) and attaches it to the system `docker` group during host bootstrap (`bootstrap/02-user-setup.sh` & `bootstrap/03-install-docker.sh`).
+
+### Why `docker` Group Membership is Used Instead of `sudo`
+1. **CI/CD Automation & Unattended Operations:** Automated deployment pipelines (GitHub Actions, GitLab CI, Ansible) require non-interactive execution of `docker compose up -d` without requiring interactive password prompts or unconstrained root escalation.
+2. **Strict Socket Permissions:** `/var/run/docker.sock` is owned by `root:docker` with mode `660` (`srw-rw----`).
+3. **FORBIDDEN Security Anti-Patterns:**
+   - **NEVER** run `chmod 666 /var/run/docker.sock` (violates CIS Linux Benchmark and OWASP standards by opening world-writeable socket access to unprivileged local users).
+   - **NEVER** alter `docker.socket` systemd unit permissions.
+   - **NEVER** expose unauthenticated TCP daemon sockets (`0.0.0.0:2375`). All external API calls MUST route through `docker-socket-proxy`.
+
+### Session Group Token Activation
+When a user is added to the `docker` group during initial bootstrap, existing active SSH sessions do not receive the new supplementary group GID immediately. To activate group membership:
+- Log out and log back in to the server over SSH, **OR**
+- Execute `exec su -l deploy` in the active terminal session.
+
+---
+
 ## Disaster Recovery & Troubleshooting
 
 1. **Certificate Renewal Reset**: If `acme.json` permissions are altered, run `chmod 600 data/traefik/acme.json` and restart Traefik (`docker compose restart traefik`).
 2. **Platform Re-Verification**: Execute `make verify` or `bash scripts/verify-platform.sh` to run the assertion test matrix.
+

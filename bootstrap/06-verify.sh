@@ -344,10 +344,20 @@ verify_user() {
 
     # In docker group
     if id -nG "${deploy_user}" 2>/dev/null | grep -qw docker; then
-        check_pass "User in docker group"
+        check_pass "User '${deploy_user}' in docker group"
     else
-        check_warn "User not in docker group"
+        check_fail "User '${deploy_user}' not in docker group"
     fi
+
+    # Non-root Docker Socket Access
+    if command -v docker >/dev/null 2>&1; then
+        if sudo -u "${deploy_user}" -H docker info >/dev/null 2>&1; then
+            check_pass "User '${deploy_user}' non-root Docker socket access: active"
+        else
+            check_warn "User '${deploy_user}' in docker group, but active SSH session requires logout/login"
+        fi
+    fi
+
 
     # SSH directory
     local user_home
@@ -498,6 +508,43 @@ verify_journald() {
     fi
 }
 
+verify_repository_location() {
+    print_section "REPOSITORY LOCATION"
+
+    local deploy_user="${DEPLOY_USER:-${OPERATIONAL_USER:-deploy}}"
+    local target_dir="/opt/setupserv"
+
+    # Directory exists
+    if [[ -d "${target_dir}" ]]; then
+        check_pass "Platform directory: ${target_dir} exists"
+    else
+        check_warn "Platform directory: ${target_dir} not found (repository not migrated yet)"
+        return 0
+    fi
+
+    # Ownership check
+    local dir_owner
+    dir_owner=$(stat -c '%U' "${target_dir}" 2>/dev/null || echo "unknown")
+    if [[ "${dir_owner}" == "${deploy_user}" ]]; then
+        check_pass "Directory ownership: ${deploy_user}"
+    else
+        check_warn "Directory ownership: ${dir_owner} (expected ${deploy_user})"
+    fi
+
+    # Essential files exist
+    if [[ -f "${target_dir}/Makefile" ]]; then
+        check_pass "Makefile: present in ${target_dir}"
+    else
+        check_warn "Makefile: not found in ${target_dir}"
+    fi
+
+    if [[ -f "${target_dir}/.env" ]]; then
+        check_pass ".env: present in ${target_dir}"
+    else
+        check_warn ".env: not found in ${target_dir}"
+    fi
+}
+
 # ==============================================================================
 # MAIN
 # ==============================================================================
@@ -523,6 +570,7 @@ main() {
     verify_security
     verify_user
     verify_docker
+    verify_repository_location
     verify_tailscale
     verify_journald
 

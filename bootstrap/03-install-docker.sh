@@ -190,6 +190,24 @@ DAEMON_EOF
 attach_deploy_user_to_docker_group() {
     local deploy_user="${DEPLOY_USER:-${OPERATIONAL_USER:-deploy}}"
 
+    # 1. Detect Docker installation status
+    if command -v docker >/dev/null 2>&1; then
+        log_info "Docker Engine detected on system"
+    else
+        log_warn "Docker binary not detected yet — proceeding with group preparation"
+    fi
+
+    # 2. Ensure docker group exists idempotently
+    if ! getent group docker >/dev/null 2>&1; then
+        if [[ "${DRY_RUN}" == "true" ]]; then
+            log_dry "Would create group: docker"
+        else
+            groupadd docker
+            log_success "Created system group: docker"
+        fi
+    fi
+
+    # 3. Add deploy user to docker group idempotently
     if ! id "${deploy_user}" &>/dev/null; then
         log_warn "User '${deploy_user}' does not exist — skipping docker group assignment"
         return 0
@@ -197,16 +215,35 @@ attach_deploy_user_to_docker_group() {
 
     if id -nG "${deploy_user}" 2>/dev/null | grep -qw docker; then
         log_info "User '${deploy_user}' is already a member of 'docker' group"
-        return 0
+    else
+        if [[ "${DRY_RUN}" == "true" ]]; then
+            log_dry "Would add user ${deploy_user} to docker group"
+            return 0
+        fi
+
+        usermod -aG docker "${deploy_user}"
+        log_success "Added '${deploy_user}' to docker group"
     fi
 
-    if [[ "${DRY_RUN}" == "true" ]]; then
-        log_dry "Would add user ${deploy_user} to docker group"
-        return 0
-    fi
+    # 4. Validation Checks
+    log_info "Validating user identity & group membership..."
+    local user_id_out user_groups_out docker_group_out
+    user_id_out=$(id "${deploy_user}" 2>/dev/null || echo "unknown")
+    user_groups_out=$(groups "${deploy_user}" 2>/dev/null || echo "unknown")
+    docker_group_out=$(getent group docker 2>/dev/null || echo "unknown")
 
-    usermod -aG docker "${deploy_user}"
-    log_success "Added '${deploy_user}' to docker group"
+    log_info "Validation - 'id ${deploy_user}': ${user_id_out}"
+    log_info "Validation - 'groups ${deploy_user}': ${user_groups_out}"
+    log_info "Validation - 'getent group docker': ${docker_group_out}"
+
+    # 5. Socket access readiness test
+    if command -v docker >/dev/null 2>&1; then
+        if sudo -u "${deploy_user}" -H docker info >/dev/null 2>&1; then
+            log_success "User '${deploy_user}' has active socket permissions to execute Docker commands without sudo"
+        else
+            log_info "User '${deploy_user}' added to 'docker' group. Existing active SSH sessions require logout/login (or running 'exec su -l ${deploy_user}') for group token to take effect."
+        fi
+    fi
 }
 
 # Enable systemd services and restart Docker service to apply daemon settings

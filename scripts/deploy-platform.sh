@@ -74,6 +74,13 @@ mkdir -p "${PROJECT_ROOT}/data/grafana/data"
 mkdir -p "${PROJECT_ROOT}/data/uptime-kuma/data"
 mkdir -p "${PROJECT_ROOT}/logs/platform"
 
+# Enforce correct container ownership on data directories to prevent permission errors
+if command -v chown >/dev/null 2>&1; then
+    chown -R 65534:65534 "${PROJECT_ROOT}/data/prometheus/data" 2>/dev/null || true
+    chown -R 472:0 "${PROJECT_ROOT}/data/grafana/data" 2>/dev/null || true
+fi
+
+
 # Verify mandatory configuration files existence
 log_info "Verifying required configuration files..."
 missing_cfg=0
