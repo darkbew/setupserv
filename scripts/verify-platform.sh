@@ -142,7 +142,12 @@ if docker inspect cloudflared --format='{{.State.Running}}' 2>/dev/null | grep -
     if docker exec traefik wget -q -O - http://cloudflared:2000/ready >/dev/null 2>&1 || docker logs cloudflared 2>&1 | grep -iq "Registered tunnel connection"; then
         check_result "Cloudflare Tunnel Connection" "PASS" "Agent connected to Cloudflare Edge"
     else
-        check_result "Cloudflare Tunnel Connection" "FAIL" "Tunnel agent running but edge connection unconfirmed (check CLOUDFLARE_TUNNEL_TOKEN in .env)"
+        cf_token="${CLOUDFLARE_TUNNEL_TOKEN:-}"
+        if [[ -z "${cf_token}" ]] || [[ "${cf_token}" == "CHANGE_ME" ]]; then
+            check_result "Cloudflare Tunnel Connection" "FAIL" "Placeholder token detected in .env — set CLOUDFLARE_TUNNEL_TOKEN to your Cloudflare Zero Trust token"
+        else
+            check_result "Cloudflare Tunnel Connection" "FAIL" "Tunnel agent running but edge connection failed — verify token validity in Cloudflare Zero Trust dashboard"
+        fi
     fi
 else
     check_result "Cloudflare Tunnel Connection" "FAIL" "Tunnel container not running"

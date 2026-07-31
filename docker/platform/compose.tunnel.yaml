@@ -39,12 +39,6 @@ services:
     command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
       - proxy-net
-    healthcheck:
-      test: ["CMD", "cloudflared", "--version"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
     deploy:
       resources:
         limits:
