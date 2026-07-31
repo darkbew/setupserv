@@ -64,10 +64,10 @@ services:
       resources:
         limits:
           cpus: '0.25'
-          memory: 128M
+          memory: 32M
         reservations:
           cpus: '0.05'
-          memory: 32M
+          memory: 16M
 
   # ----------------------------------------------------------------------------
   # Traefik v3 — Edge Reverse Proxy & Automatic Let's Encrypt Ingress
@@ -120,5 +120,14 @@ services:
           cpus: '0.50'
           memory: 256M
         reservations:
-          cpus: '0.10'
-          memory: 64M
+          cpus: '0.05'
+          memory: 32M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      - "traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik-dashboard.middlewares=traefik-auth@docker,security-headers@file"
+      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_BASIC_AUTH:-admin:$$apr1$$8.68fL..$$3r9K9yE4M7a/qO6/Z1A.0}"
+

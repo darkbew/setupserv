@@ -22,13 +22,25 @@ accessLog:
       - "200-299"
       - "400-599"
 
+# API & Dashboard Configuration
+api:
+  dashboard: true
+  insecure: false
+
+# Prometheus Metrics Configuration
+metrics:
+  prometheus:
+    entryPoint: traefik
+    addEntryPointsLabels: true
+    addServicesLabels: true
+
 # Ping Healthcheck Endpoint (used by container healthcheck)
 ping:
   entryPoint: traefik
 
 # EntryPoints Configuration
 entryPoints:
-  # Internal management entrypoint for ping / dashboard
+  # Internal management entrypoint for ping / dashboard / metrics
   traefik:
     address: ":8080"
 
@@ -48,6 +60,7 @@ entryPoints:
     http:
       tls:
         certResolver: letsencrypt
+        options: default
 
 # Dynamic Configuration Providers
 providers:
@@ -62,6 +75,7 @@ providers:
   file:
     directory: "/etc/traefik/dynamic"
     watch: true
+
 
 
 # NOTE: certificatesResolvers (Let's Encrypt ACME) is configured via

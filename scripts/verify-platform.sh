@@ -5,9 +5,9 @@
 #
 # Description:
 #   Performs comprehensive assertion checks against Layer 2 platform components:
-#   Docker daemon status, network bridges, configuration file existence,
-#   acme.json permissions (600), image tag pinning (no :latest), admin email,
-#   container health states, and host port bindings (80 & 443).
+#   Docker daemon status, bridge networks (proxy-net, backend-net, monitoring-net),
+#   configuration file existence, acme.json permissions (600), image tag pinning (no :latest),
+#   admin email, container health states for all 8 platform services, and host port bindings (80/443).
 #
 # Usage:
 #   sudo bash scripts/verify-platform.sh
@@ -47,10 +47,10 @@ check_result() {
     local details="${3:-}"
 
     if [[ "${status}" == "PASS" ]]; then
-        printf '  %s[PASS]%s %-35s : %s\n' "${GREEN}" "${NC}" "${description}" "${details}"
+        printf '  %s[PASS]%s %-42s : %s\n' "${GREEN}" "${NC}" "${description}" "${details}"
         pass_count=$((pass_count + 1))
     else
-        printf '  %s[FAIL]%s %-35s : %s\n' "${RED}" "${NC}" "${description}" "${details}"
+        printf '  %s[FAIL]%s %-42s : %s\n' "${RED}" "${NC}" "${description}" "${details}"
         fail_count=$((fail_count + 1))
     fi
 }
@@ -70,26 +70,22 @@ else
 fi
 
 # 2. Configuration Files Existence Checks
-COMPOSE_FILE="${PROJECT_ROOT}/docker/platform/compose.yaml"
-if [[ -f "${COMPOSE_FILE}" ]]; then
-    check_result "Platform Compose (compose.yaml)" "PASS" "File present"
-else
-    check_result "Platform Compose (compose.yaml)" "FAIL" "File missing: ${COMPOSE_FILE}"
-fi
-
-TRAEFIK_STATIC="${PROJECT_ROOT}/configs/traefik/traefik.yaml"
-if [[ -f "${TRAEFIK_STATIC}" ]]; then
-    check_result "Traefik Static Config (traefik.yaml)" "PASS" "File present"
-else
-    check_result "Traefik Static Config (traefik.yaml)" "FAIL" "File missing: ${TRAEFIK_STATIC}"
-fi
-
-MIDDLEWARES_FILE="${PROJECT_ROOT}/configs/traefik/dynamic/middlewares.yaml"
-if [[ -f "${MIDDLEWARES_FILE}" ]]; then
-    check_result "Dynamic Middlewares (middlewares.yaml)" "PASS" "File present"
-else
-    check_result "Dynamic Middlewares (middlewares.yaml)" "FAIL" "File missing: ${MIDDLEWARES_FILE}"
-fi
+for cfg in \
+    "${PROJECT_ROOT}/docker/platform/compose.yaml" \
+    "${PROJECT_ROOT}/configs/traefik/traefik.yaml" \
+    "${PROJECT_ROOT}/configs/traefik/dynamic/middlewares.yaml" \
+    "${PROJECT_ROOT}/configs/traefik/dynamic/tls-options.yaml" \
+    "${PROJECT_ROOT}/configs/prometheus/prometheus.yaml" \
+    "${PROJECT_ROOT}/configs/grafana/provisioning/datasources/datasources.yaml" \
+    "${PROJECT_ROOT}/configs/grafana/provisioning/dashboards/dashboards.yaml"
+do
+    bname="$(basename "${cfg}")"
+    if [[ -f "${cfg}" ]]; then
+        check_result "Config File: ${bname}" "PASS" "Present"
+    else
+        check_result "Config File: ${bname}" "FAIL" "Missing file: ${cfg}"
+    fi
+done
 
 # 3. Bridge Networks Checks
 for net in "proxy-net" "backend-net" "monitoring-net"; do
@@ -129,38 +125,40 @@ else
     check_result "Admin Email Configuration" "FAIL" "Unconfigured or placeholder email"
 fi
 
-# 7. Socket Proxy Container Check
-if docker ps --format '{{.Names}}' | grep -q '^docker-socket-proxy$'; then
-    sp_health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' docker-socket-proxy 2>/dev/null || echo "unknown")
-    if [[ "${sp_health}" == "healthy" ]] || [[ "${sp_health}" == "running" ]]; then
-        check_result "Socket Proxy (docker-socket-proxy)" "PASS" "Status: ${sp_health}"
-    else
-        check_result "Socket Proxy (docker-socket-proxy)" "FAIL" "Status: ${sp_health}"
-    fi
-else
-    check_result "Socket Proxy (docker-socket-proxy)" "FAIL" "Container not running"
-fi
+# 7. Layer 2 Platform Container Health Matrix (8 Core Containers)
+check_container_health() {
+    local cname="$1"
+    local display_name="$2"
 
-# 8. Traefik Container Check
-if docker ps --format '{{.Names}}' | grep -q '^traefik$'; then
-    tf_health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' traefik 2>/dev/null || echo "unknown")
-    if [[ "${tf_health}" == "healthy" ]] || [[ "${tf_health}" == "running" ]]; then
-        check_result "Traefik Ingress (traefik)" "PASS" "Status: ${tf_health}"
+    if docker ps --format '{{.Names}}' | grep -q "^${cname}$"; then
+        chealth=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${cname}" 2>/dev/null || echo "unknown")
+        if [[ "${chealth}" == "healthy" ]] || [[ "${chealth}" == "running" ]]; then
+            check_result "Container: ${display_name}" "PASS" "Status: ${chealth}"
+        else
+            check_result "Container: ${display_name}" "FAIL" "Status: ${chealth}"
+        fi
     else
-        check_result "Traefik Ingress (traefik)" "FAIL" "Status: ${tf_health}"
+        check_result "Container: ${display_name}" "FAIL" "Container not running"
     fi
-else
-    check_result "Traefik Ingress (traefik)" "FAIL" "Container not running"
-fi
+}
 
-# 9. Host Port 80 Check
+check_container_health "docker-socket-proxy" "Socket Proxy"
+check_container_health "traefik" "Traefik Ingress"
+check_container_health "cloudflared" "Cloudflare Tunnel"
+check_container_health "prometheus" "Prometheus"
+check_container_health "grafana" "Grafana"
+check_container_health "node-exporter" "Node Exporter"
+check_container_health "uptime-kuma" "Uptime Kuma"
+check_container_health "dozzle" "Dozzle Log Viewer"
+
+# 8. Host Ingress Port 80 Check
 if netstat -tuln 2>/dev/null | grep -E ':(80|0\.0\.0\.0:80) ' >/dev/null || ss -tuln 2>/dev/null | grep -E ':(80|0\.0\.0\.0:80) ' >/dev/null || lsof -i :80 >/dev/null 2>&1; then
     check_result "Host Ingress Port 80 (HTTP)" "PASS" "Port listening"
 else
     check_result "Host Ingress Port 80 (HTTP)" "FAIL" "Port 80 not listening"
 fi
 
-# 10. Host Port 443 Check
+# 9. Host Ingress Port 443 Check
 if netstat -tuln 2>/dev/null | grep -E ':(443|0\.0\.0\.0:443) ' >/dev/null || ss -tuln 2>/dev/null | grep -E ':(443|0\.0\.0\.0:443) ' >/dev/null || lsof -i :443 >/dev/null 2>&1; then
     check_result "Host Ingress Port 443 (HTTPS)" "PASS" "Port listening"
 else

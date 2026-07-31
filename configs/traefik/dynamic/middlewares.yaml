@@ -32,3 +32,36 @@ http:
     # Compression Middleware
     gzip-compress:
       compress: {}
+
+    # Rate Limiting Middleware
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50
+
+    # IP Whitelist Middleware (Private Networks & Localhost)
+    ip-whitelist:
+      ipWhiteList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+
+    # Standard Basic Authentication Middleware Template
+    basic-auth:
+      basicAuth:
+        realm: "Restricted Platform Access"
+        removeHeader: true
+
+    # Forward Authentication Middleware Template (SSO / Authelia / Keycloak)
+    forward-auth:
+      forwardAuth:
+        address: "http://auth-service:9091/api/verify"
+        authResponseHeaders:
+          - "Remote-User"
+          - "Remote-Groups"
+          - "Remote-Name"
+          - "Remote-Email"
+        trustForwardHeader: true
+

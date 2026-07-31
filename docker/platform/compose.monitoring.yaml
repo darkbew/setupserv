@@ -1,11 +1,11 @@
 # ==============================================================================
-# Server Bootstrap Framework — Layer 2 Monitoring Stack Overlay
+# Server Bootstrap Framework — Layer 2 Monitoring & Logging Stack
 # ==============================================================================
 #
 # Description:
-#   Compose overlay specification for optional Layer 2 monitoring infrastructure:
-#   Prometheus, Grafana, Loki, Promtail, Node Exporter, cAdvisor, Uptime Kuma.
-#   Activated when INSTALL_MONITORING=yes in .env.
+#   Streamlined, lightweight monitoring & logging overlay containing:
+#   Prometheus, Grafana, Node Exporter, Uptime Kuma, and Dozzle.
+#   Loki, Promtail, and cAdvisor are intentionally excluded to keep RAM < 1.0GB.
 #
 # ==============================================================================
 
@@ -51,9 +51,17 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
 
   # ----------------------------------------------------------------------------
-  # Grafana — Metrics & Logs Visualization Dashboard
+  # Grafana — Metrics Visualization & Platform Dashboards
   # ----------------------------------------------------------------------------
   grafana:
     image: grafana/grafana:${GRAFANA_IMAGE_TAG:-11.6.0}
@@ -79,61 +87,21 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.grafana.rule=Host(`monitor.${DOMAIN}`)"
       - "traefik.http.routers.grafana.entrypoints=websecure"
       - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
       - "traefik.http.services.grafana.loadbalancer.server.port=3000"
-
-  # ----------------------------------------------------------------------------
-  # Loki — Log Aggregation Engine
-  # ----------------------------------------------------------------------------
-  loki:
-    image: grafana/loki:${LOKI_IMAGE_TAG:-3.5.0}
-    container_name: loki
-    restart: unless-stopped
-    read_only: true
-    user: "10001:10001"
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    tmpfs:
-      - /tmp
-    command: -config.file=/etc/loki/loki.yaml
-    volumes:
-      - ../../configs/loki/loki.yaml:/etc/loki/loki.yaml:ro
-      - ../../data/loki/data:/loki:rw
-    networks:
-      - monitoring-net
-    healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3100/ready || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-
-  # ----------------------------------------------------------------------------
-  # Promtail — Docker Container Log Collector Agent
-  # ----------------------------------------------------------------------------
-  promtail:
-    image: grafana/promtail:${PROMTAIL_IMAGE_TAG:-3.5.0}
-    container_name: promtail
-    restart: unless-stopped
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    tmpfs:
-      - /tmp
-    command: -config.file=/etc/promtail/config.yml
-    volumes:
-      - ../../configs/promtail/promtail.yaml:/etc/promtail/config.yml:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/log:/var/log:ro
-    networks:
-      - monitoring-net
+      - "traefik.http.routers.grafana.middlewares=security-headers@file"
 
   # ----------------------------------------------------------------------------
   # Node Exporter — Host System Metrics Exporter
@@ -158,33 +126,22 @@ services:
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
     networks:
       - monitoring-net
-
-  # ----------------------------------------------------------------------------
-  # cAdvisor — Container Resource Usage Exporter
-  # ----------------------------------------------------------------------------
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:${CADVISOR_IMAGE_TAG:-v0.52.1}
-    container_name: cadvisor
-    restart: unless-stopped
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
-    networks:
-      - monitoring-net
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:9100/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 32M
+        reservations:
+          cpus: '0.05'
+          memory: 16M
 
   # ----------------------------------------------------------------------------
-  # Uptime Kuma — Application Uptime & Availability Monitoring
+  # Uptime Kuma — Application Uptime & HTTP Endpoint Monitoring
   # ----------------------------------------------------------------------------
   uptime-kuma:
     image: louislam/uptime-kuma:${UPTIME_KUMA_IMAGE_TAG:-1}
@@ -202,9 +159,61 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 128M
+        reservations:
+          cpus: '0.10'
+          memory: 32M
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.kuma.rule=Host(`status.${DOMAIN}`)"
       - "traefik.http.routers.kuma.entrypoints=websecure"
       - "traefik.http.routers.kuma.tls.certresolver=letsencrypt"
       - "traefik.http.services.kuma.loadbalancer.server.port=3001"
+      - "traefik.http.routers.kuma.middlewares=security-headers@file"
+
+  # ----------------------------------------------------------------------------
+  # Dozzle — Zero-Database Ultra-Lightweight Container Log Viewer
+  # ----------------------------------------------------------------------------
+  dozzle:
+    image: amir20/dozzle:${DOZZLE_IMAGE_TAG:-v8.11.8}
+    container_name: dozzle
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    environment:
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
+    networks:
+      - proxy-net
+      - monitoring-net
+    depends_on:
+      docker-socket-proxy:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 64M
+        reservations:
+          cpus: '0.05'
+          memory: 16M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dozzle.rule=Host(`logs.${DOMAIN}`)"
+      - "traefik.http.routers.dozzle.entrypoints=websecure"
+      - "traefik.http.routers.dozzle.tls.certresolver=letsencrypt"
+      - "traefik.http.services.dozzle.loadbalancer.server.port=8080"
+      - "traefik.http.routers.dozzle.middlewares=security-headers@file"

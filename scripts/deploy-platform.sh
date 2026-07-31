@@ -5,10 +5,12 @@
 #
 # Description:
 #   Initializes host data directories, sets 600 permissions on acme.json,
-#   resolves dynamic ADMIN_EMAIL, verifies host ingress ports 80/443,
+#   resolves dynamic ADMIN_EMAIL, verifies required configuration files,
+#   validates tokens/secrets, verifies host ingress ports 80/443,
 #   creates required external Docker bridge networks (proxy-net, backend-net,
 #   monitoring-net), constructs compose overlay chain, and launches Layer 2
-#   platform services (Traefik v3 & Docker Socket Proxy).
+#   platform services (Traefik v3, Socket Proxy, Cloudflared, Prometheus, Grafana,
+#   Node Exporter, Uptime Kuma, Dozzle).
 #
 # Usage:
 #   sudo bash scripts/deploy-platform.sh
@@ -63,8 +65,48 @@ log_section "Initializing Layer 2 Platform Infrastructure"
 
 # Ensure required directory structure exists
 mkdir -p "${PROJECT_ROOT}/configs/traefik/dynamic"
+mkdir -p "${PROJECT_ROOT}/configs/prometheus"
+mkdir -p "${PROJECT_ROOT}/configs/grafana/provisioning/datasources"
+mkdir -p "${PROJECT_ROOT}/configs/grafana/provisioning/dashboards/default"
 mkdir -p "${PROJECT_ROOT}/data/traefik"
+mkdir -p "${PROJECT_ROOT}/data/prometheus/data"
+mkdir -p "${PROJECT_ROOT}/data/grafana/data"
+mkdir -p "${PROJECT_ROOT}/data/uptime-kuma/data"
 mkdir -p "${PROJECT_ROOT}/logs/platform"
+
+# Verify mandatory configuration files existence
+log_info "Verifying required configuration files..."
+missing_cfg=0
+req_configs=(
+    "${PROJECT_ROOT}/configs/traefik/traefik.yaml"
+    "${PROJECT_ROOT}/configs/traefik/dynamic/middlewares.yaml"
+    "${PROJECT_ROOT}/configs/traefik/dynamic/tls-options.yaml"
+    "${PROJECT_ROOT}/configs/prometheus/prometheus.yaml"
+    "${PROJECT_ROOT}/configs/grafana/provisioning/datasources/datasources.yaml"
+    "${PROJECT_ROOT}/configs/grafana/provisioning/dashboards/dashboards.yaml"
+)
+
+for cfg in "${req_configs[@]}"; do
+    if [[ ! -f "${cfg}" ]]; then
+        log_error "Missing required configuration file: ${cfg}"
+        missing_cfg=$((missing_cfg + 1))
+    fi
+done
+
+if [[ "${missing_cfg}" -gt 0 ]]; then
+    log_error "Deployment aborted due to missing configuration files."
+    exit 1
+fi
+log_success "All required configuration files verified"
+
+# Validate Cloudflare Tunnel Token
+cf_token="${CLOUDFLARE_TUNNEL_TOKEN:-}"
+if [[ -z "${cf_token}" ]] || [[ "${cf_token}" == "CHANGE_ME" ]]; then
+    log_error "CLOUDFLARE_TUNNEL_TOKEN is unconfigured or set to placeholder in .env!"
+    log_error "Please set a valid Cloudflare Tunnel Token before deploying."
+    exit 1
+fi
+log_success "Cloudflare Tunnel Token validated"
 
 # Initialize acme.json with strict 600 permissions
 ACME_FILE="${PROJECT_ROOT}/data/traefik/acme.json"
@@ -139,7 +181,7 @@ ensure_network "proxy-net"
 ensure_network "backend-net"
 ensure_network "monitoring-net"
 
-# Construct Docker Compose file chain based on .env toggles
+# Construct Docker Compose file chain
 COMPOSE_BASE="${PROJECT_ROOT}/docker/platform/compose.yaml"
 if [[ ! -f "${COMPOSE_BASE}" ]]; then
     log_error "Base platform compose specification not found: ${COMPOSE_BASE}"
@@ -148,26 +190,29 @@ fi
 
 COMPOSE_ARGS=("-f" "${COMPOSE_BASE}")
 
-# Optional Monitoring Overlay
-if [[ "${INSTALL_MONITORING:-no}" == "yes" ]] && [[ -f "${PROJECT_ROOT}/docker/platform/compose.monitoring.yaml" ]]; then
+if [[ -f "${PROJECT_ROOT}/docker/platform/compose.monitoring.yaml" ]]; then
     COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.monitoring.yaml")
     log_info "Added Compose Overlay: compose.monitoring.yaml"
 fi
 
-# Optional Cloudflare Tunnel Overlay
-if [[ "${INSTALL_CLOUDFLARE_TUNNEL:-no}" == "yes" ]] && [[ -f "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml" ]]; then
+if [[ -f "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml" ]]; then
     COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml")
     log_info "Added Compose Overlay: compose.tunnel.yaml"
 fi
 
-# Optional Backup Overlay
-if [[ "${INSTALL_BACKUP:-no}" == "yes" ]] && [[ -f "${PROJECT_ROOT}/docker/platform/compose.backup.yaml" ]]; then
-    COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.backup.yaml")
-    log_info "Added Compose Overlay: compose.backup.yaml"
-fi
+expected_containers=(
+    "docker-socket-proxy"
+    "traefik"
+    "cloudflared"
+    "prometheus"
+    "grafana"
+    "node-exporter"
+    "uptime-kuma"
+    "dozzle"
+)
 
 # Launch Layer 2 Containers via Docker Compose
-log_info "Deploying Layer 2 containers with Docker Compose..."
+log_info "Deploying Layer 2 platform containers with Docker Compose..."
 if docker compose "${COMPOSE_ARGS[@]}" up -d; then
     log_success "Layer 2 containers started successfully"
 else
@@ -184,7 +229,7 @@ all_healthy=false
 while [[ "${elapsed}" -lt "${max_wait}" ]]; do
     healthy=true
 
-    for cname in "docker-socket-proxy" "traefik"; do
+    for cname in "${expected_containers[@]}"; do
         if docker ps --format '{{.Names}}' | grep -q "^${cname}$"; then
             status=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${cname}" 2>/dev/null || echo "unknown")
             if [[ "${status}" != "healthy" ]] && [[ "${status}" != "running" ]]; then
@@ -207,7 +252,7 @@ while [[ "${elapsed}" -lt "${max_wait}" ]]; do
 done
 
 if [[ "${all_healthy}" == "true" ]]; then
-    log_success "All platform containers healthy (${elapsed}s)"
+    log_success "All 8 Layer 2 platform containers healthy (${elapsed}s)"
 else
     log_warn "Some containers not yet healthy after ${max_wait}s — proceeding with verification"
 fi
@@ -215,7 +260,7 @@ fi
 # Invoke Platform Verification Script
 VERIFY_SCRIPT="${SCRIPT_DIR}/verify-platform.sh"
 if [[ -f "${VERIFY_SCRIPT}" ]]; then
-    log_info "Executing Layer 2 post-deployment verification..."
+    log_info "Executing Layer 2 post-deployment verification matrix..."
     if bash "${VERIFY_SCRIPT}"; then
         log_success "Layer 2 Platform Deployment Verified Successfully"
         exit 0
