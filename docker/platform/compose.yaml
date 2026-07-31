@@ -40,6 +40,8 @@ services:
       - no-new-privileges:true
     environment:
       - CONTAINERS=1
+      - EVENTS=1
+      - LOGS=1
       - NETWORKS=1
       - SERVICES=0
       - TASKS=0

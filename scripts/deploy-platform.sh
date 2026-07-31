@@ -147,9 +147,9 @@ expected_containers=(
     "dozzle"
 )
 
-# Launch Layer 2 Containers via Docker Compose
+# Launch Layer 2 Containers via Docker Compose (recreating to apply zero-host-port spec)
 log_info "Deploying Layer 2 platform containers with Docker Compose..."
-if docker compose "${COMPOSE_ARGS[@]}" up -d; then
+if docker compose "${COMPOSE_ARGS[@]}" up -d --remove-orphans --force-recreate; then
     log_success "Layer 2 containers started successfully"
 else
     log_error "Failed to deploy Layer 2 platform containers"

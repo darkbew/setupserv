@@ -138,10 +138,14 @@ check_container_health "uptime-kuma" "Uptime Kuma"
 check_container_health "dozzle" "Dozzle Log Viewer"
 
 # 7. Cloudflare Tunnel Agent Readiness Verification
-if docker exec cloudflared wget --spider -q http://127.0.0.1:2000/ready >/dev/null 2>&1; then
-    check_result "Cloudflare Tunnel Connection" "PASS" "Agent connected to Cloudflare Edge"
+if docker inspect cloudflared --format='{{.State.Running}}' 2>/dev/null | grep -q "true"; then
+    if docker exec traefik wget -q -O - http://cloudflared:2000/ready >/dev/null 2>&1 || docker logs cloudflared 2>&1 | grep -iq "Registered tunnel connection"; then
+        check_result "Cloudflare Tunnel Connection" "PASS" "Agent connected to Cloudflare Edge"
+    else
+        check_result "Cloudflare Tunnel Connection" "FAIL" "Tunnel agent running but edge connection unconfirmed (check CLOUDFLARE_TUNNEL_TOKEN in .env)"
+    fi
 else
-    check_result "Cloudflare Tunnel Connection" "FAIL" "Agent ready endpoint unreachable"
+    check_result "Cloudflare Tunnel Connection" "FAIL" "Tunnel container not running"
 fi
 
 # 8. Traefik Internal HTTP Routing Verification
@@ -155,17 +159,22 @@ fi
 check_host_port_unbound() {
     local port="$1"
     local bound=false
+    local proc_info=""
 
     if command -v ss >/dev/null 2>&1; then
-        if ss -tuln 2>/dev/null | grep -E ":${port}\s" >/dev/null; then bound=true; fi
+        proc_info=$(ss -tulnp 2>/dev/null | grep -E ":${port}\s" || true)
     elif command -v netstat >/dev/null 2>&1; then
-        if netstat -tuln 2>/dev/null | grep -E ":${port}\s" >/dev/null; then bound=true; fi
+        proc_info=$(netstat -tulnp 2>/dev/null | grep -E ":${port}\s" || true)
+    fi
+
+    if [[ -n "${proc_info}" ]]; then
+        bound=true
     fi
 
     if [[ "${bound}" == "false" ]]; then
         check_result "Host Security: Port ${port} Isolated" "PASS" "Port not exposed to host"
     else
-        check_result "Host Security: Port ${port} Isolated" "FAIL" "Port ${port} is listening on host"
+        check_result "Host Security: Port ${port} Isolated" "FAIL" "Port ${port} is listening on host (run 'make platform-down && make platform' to recreate containers without host ports)"
     fi
 }
 
