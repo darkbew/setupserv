@@ -1,21 +1,16 @@
 # ==============================================================================
-# Server Bootstrap Framework — Traefik Dynamic Middlewares
+# Server Bootstrap Framework — Traefik Dynamic Middlewares (Traefik v3)
 # ==============================================================================
 #
 # Description:
-#   Dynamic middleware definitions for security headers, scheme redirection,
-#   and basic authentication options.
+#   Dynamic middleware definitions for security headers, rate limiting,
+#   IP access control, compression, basic authentication, and forward authentication.
+#   Designed for Cloudflare Tunnel ingress (HTTP->HTTPS redirect handled at Cloudflare Edge).
 #
 # ==============================================================================
 
 http:
   middlewares:
-    # Scheme Redirect Middleware (HTTP -> HTTPS)
-    redirect-to-https:
-      redirectScheme:
-        scheme: https
-        permanent: true
-
     # Enterprise Security Headers Baseline
     security-headers:
       headers:
@@ -39,9 +34,18 @@ http:
         average: 100
         burst: 50
 
-    # IP Whitelist Middleware (Private Networks & Localhost)
+    # IP Allow List Middleware — Traefik v3 Syntax (Private Networks & Localhost)
+    ip-allowlist:
+      ipAllowList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+
+    # Alias for Backward Compatibility (ip-whitelist -> ipAllowList)
     ip-whitelist:
-      ipWhiteList:
+      ipAllowList:
         sourceRange:
           - "127.0.0.1/32"
           - "10.0.0.0/8"
@@ -64,4 +68,3 @@ http:
           - "Remote-Name"
           - "Remote-Email"
         trustForwardHeader: true
-

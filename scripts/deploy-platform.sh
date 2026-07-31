@@ -4,20 +4,19 @@
 # ==============================================================================
 #
 # Description:
-#   Initializes host data directories, sets 600 permissions on acme.json,
-#   resolves dynamic ADMIN_EMAIL, verifies required configuration files,
-#   validates tokens/secrets, verifies host ingress ports 80/443,
+#   Initializes host data directories, sets volume permissions,
+#   verifies required configuration files, validates Cloudflare Tunnel Token,
 #   creates required external Docker bridge networks (proxy-net, backend-net,
 #   monitoring-net), constructs compose overlay chain, and launches Layer 2
 #   platform services (Traefik v3, Socket Proxy, Cloudflared, Prometheus, Grafana,
 #   Node Exporter, Uptime Kuma, Dozzle).
 #
-# Usage:
-#   sudo bash scripts/deploy-platform.sh
-#
-# Constraints:
-#   - Must run with root / sudo privileges
+# Constraints & Architecture:
+#   - Cloudflare Tunnel Ingress Architecture (No host ports 80/443 exposed).
 #   - Must adhere to set -Eeuo pipefail
+#
+# Usage:
+#   bash scripts/deploy-platform.sh
 #
 # ==============================================================================
 
@@ -46,19 +45,10 @@ if [[ -f "${PROJECT_ROOT}/.env" ]]; then
     source "${PROJECT_ROOT}/.env"
     log_info "Loaded active configuration: ${PROJECT_ROOT}/.env"
 else
-    log_warn "No .env file found at ${PROJECT_ROOT}/.env — using defaults"
+    log_warn "No .env file found at ${PROJECT_ROOT}/.env — using default fallbacks"
 fi
 
-# Resolve effective ADMIN_EMAIL (fallback to admin@${DOMAIN} if empty or placeholder)
-raw_admin_email="${ADMIN_EMAIL:-}"
-if [[ -z "${raw_admin_email}" ]] || [[ "${raw_admin_email,,}" =~ ^(admin@example\.com|change_me|your_.*)$ ]]; then
-    export ADMIN_EMAIL="admin@${DOMAIN:-example.com}"
-else
-    export ADMIN_EMAIL="${raw_admin_email}"
-fi
 export SOCKET_PROXY_IMAGE_TAG="${SOCKET_PROXY_IMAGE_TAG:-0.3.0}"
-
-log_info "Effective Let's Encrypt Admin Email: ${ADMIN_EMAIL}"
 log_info "Effective Socket Proxy Image Tag: ${SOCKET_PROXY_IMAGE_TAG}"
 
 log_section "Initializing Layer 2 Platform Infrastructure"
@@ -68,7 +58,6 @@ mkdir -p "${PROJECT_ROOT}/configs/traefik/dynamic"
 mkdir -p "${PROJECT_ROOT}/configs/prometheus"
 mkdir -p "${PROJECT_ROOT}/configs/grafana/provisioning/datasources"
 mkdir -p "${PROJECT_ROOT}/configs/grafana/provisioning/dashboards/default"
-mkdir -p "${PROJECT_ROOT}/data/traefik"
 mkdir -p "${PROJECT_ROOT}/data/prometheus/data"
 mkdir -p "${PROJECT_ROOT}/data/grafana/data"
 mkdir -p "${PROJECT_ROOT}/data/uptime-kuma/data"
@@ -80,14 +69,12 @@ if command -v chown >/dev/null 2>&1; then
     chown -R 472:0 "${PROJECT_ROOT}/data/grafana/data" 2>/dev/null || true
 fi
 
-
 # Verify mandatory configuration files existence
 log_info "Verifying required configuration files..."
 missing_cfg=0
 req_configs=(
     "${PROJECT_ROOT}/configs/traefik/traefik.yaml"
     "${PROJECT_ROOT}/configs/traefik/dynamic/middlewares.yaml"
-    "${PROJECT_ROOT}/configs/traefik/dynamic/tls-options.yaml"
     "${PROJECT_ROOT}/configs/prometheus/prometheus.yaml"
     "${PROJECT_ROOT}/configs/grafana/provisioning/datasources/datasources.yaml"
     "${PROJECT_ROOT}/configs/grafana/provisioning/dashboards/dashboards.yaml"
@@ -114,64 +101,6 @@ if [[ -z "${cf_token}" ]] || [[ "${cf_token}" == "CHANGE_ME" ]]; then
     exit 1
 fi
 log_success "Cloudflare Tunnel Token validated"
-
-# Initialize acme.json with strict 600 permissions
-ACME_FILE="${PROJECT_ROOT}/data/traefik/acme.json"
-if [[ ! -f "${ACME_FILE}" ]]; then
-    touch "${ACME_FILE}"
-    log_info "Created certificate store: ${ACME_FILE}"
-fi
-chmod 600 "${ACME_FILE}"
-log_success "Verified permissions (600) on ${ACME_FILE}"
-
-# Host Ingress Port Conflict Detection (TCP 80 & 443)
-check_port_conflict() {
-    local port="$1"
-    local pinfo=""
-
-    if command -v ss >/dev/null 2>&1; then
-        pinfo=$(ss -tulnp 2>/dev/null | grep -E ":${port}\s" || true)
-    elif command -v netstat >/dev/null 2>&1; then
-        pinfo=$(netstat -tulnp 2>/dev/null | grep -E ":${port}\s" || true)
-    elif command -v lsof >/dev/null 2>&1; then
-        pinfo=$(lsof -i ":${port}" 2>/dev/null | grep LISTEN || true)
-    fi
-
-    if [[ -n "${pinfo}" ]]; then
-        local proc_name="unknown"
-        local pid="unknown"
-
-        if [[ "${pinfo}" =~ users:\(\(\"([^\"]+)\",pid=([0-9]+) ]]; then
-            proc_name="${BASH_REMATCH[1]}"
-            pid="${BASH_REMATCH[2]}"
-        elif [[ "${pinfo}" =~ ([0-9]+)/([a-zA-Z0-9_-]+) ]]; then
-            pid="${BASH_REMATCH[1]}"
-            proc_name="${BASH_REMATCH[2]}"
-        elif [[ "${pinfo}" =~ ([a-zA-Z0-9_-]+)[[:space:]]+([0-9]+) ]]; then
-            proc_name="${BASH_REMATCH[1]}"
-            pid="${BASH_REMATCH[2]}"
-        fi
-
-        # Allow if owned by Docker daemon proxy / active Traefik container
-        if [[ "${proc_name}" == "docker-proxy" ]] || [[ "${proc_name}" == "traefik" ]]; then
-            log_info "Port ${port} is currently bound by platform ingress (${proc_name})"
-            return 0
-        fi
-
-        log_error "Port ${port} already used by ${proc_name} (PID ${pid})"
-        log_error "Resolve the conflict before deploying Layer 2."
-        return 1
-    fi
-
-    return 0
-}
-
-log_info "Verifying host ingress port availability (80 & 443)..."
-if ! check_port_conflict 80 || ! check_port_conflict 443; then
-    log_error "Aborting deployment due to host port conflict."
-    exit 1
-fi
-log_success "Host ports 80 and 443 available"
 
 # Idempotently create external Docker bridge networks
 ensure_network() {

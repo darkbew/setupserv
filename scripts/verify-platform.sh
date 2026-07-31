@@ -4,13 +4,13 @@
 # ==============================================================================
 #
 # Description:
-#   Performs comprehensive assertion checks against Layer 2 platform components:
-#   Docker daemon status, bridge networks (proxy-net, backend-net, monitoring-net),
-#   configuration file existence, acme.json permissions (600), image tag pinning (no :latest),
-#   admin email, container health states for all 8 platform services, and host port bindings (80/443).
+#   Comprehensive post-deployment verification for Cloudflare Tunnel Ingress Architecture.
+#   Validates Docker Engine, bridge network isolation, configuration assets,
+#   Cloudflare Tunnel agent readiness, Traefik internal HTTP routing, container health matrix,
+#   and host port isolation guards (verifying ports 80/443 are NOT exposed to host).
 #
 # Usage:
-#   sudo bash scripts/verify-platform.sh
+#   bash scripts/verify-platform.sh
 #
 # Exit Codes:
 #   0 — All verification checks passed
@@ -47,17 +47,17 @@ check_result() {
     local details="${3:-}"
 
     if [[ "${status}" == "PASS" ]]; then
-        printf '  %s[PASS]%s %-42s : %s\n' "${GREEN}" "${NC}" "${description}" "${details}"
+        printf '  %s[PASS]%s %-44s : %s\n' "${GREEN}" "${NC}" "${description}" "${details}"
         pass_count=$((pass_count + 1))
     else
-        printf '  %s[FAIL]%s %-42s : %s\n' "${RED}" "${NC}" "${description}" "${details}"
+        printf '  %s[FAIL]%s %-44s : %s\n' "${RED}" "${NC}" "${description}" "${details}"
         fail_count=$((fail_count + 1))
     fi
 }
 
 printf '\n'
 printf '%s══════════════════════════════════════════════════════════════════════════════%s\n' "${BOLD}" "${NC}"
-printf '%s  SERVER BOOTSTRAP FRAMEWORK — LAYER 2 VERIFICATION MATRIX                    %s\n' "${BOLD}" "${NC}"
+printf '%s  SERVER BOOTSTRAP FRAMEWORK — LAYER 2 CLOUDFLARE TUNNEL VERIFICATION MATRIX  %s\n' "${BOLD}" "${NC}"
 printf '%s══════════════════════════════════════════════════════════════════════════════%s\n' "${BOLD}" "${NC}"
 printf '\n'
 
@@ -74,7 +74,6 @@ for cfg in \
     "${PROJECT_ROOT}/docker/platform/compose.yaml" \
     "${PROJECT_ROOT}/configs/traefik/traefik.yaml" \
     "${PROJECT_ROOT}/configs/traefik/dynamic/middlewares.yaml" \
-    "${PROJECT_ROOT}/configs/traefik/dynamic/tls-options.yaml" \
     "${PROJECT_ROOT}/configs/prometheus/prometheus.yaml" \
     "${PROJECT_ROOT}/configs/grafana/provisioning/datasources/datasources.yaml" \
     "${PROJECT_ROOT}/configs/grafana/provisioning/dashboards/dashboards.yaml"
@@ -96,20 +95,7 @@ for net in "proxy-net" "backend-net" "monitoring-net"; do
     fi
 done
 
-# 4. acme.json File Permissions Check
-ACME_FILE="${PROJECT_ROOT}/data/traefik/acme.json"
-if [[ -f "${ACME_FILE}" ]]; then
-    file_perm=$(stat -c "%a" "${ACME_FILE}" 2>/dev/null || stat -f "%Lp" "${ACME_FILE}" 2>/dev/null || echo "000")
-    if [[ "${file_perm}" == "600" ]]; then
-        check_result "Certificate Store (acme.json)" "PASS" "Mode 600 verified"
-    else
-        check_result "Certificate Store (acme.json)" "FAIL" "Invalid mode ${file_perm} (expected 600)"
-    fi
-else
-    check_result "Certificate Store (acme.json)" "FAIL" "File missing: ${ACME_FILE}"
-fi
-
-# 5. Image Tag Pinning Check (No :latest)
+# 4. Image Tag Pinning Check (No :latest)
 sp_tag="${SOCKET_PROXY_IMAGE_TAG:-0.3.0}"
 if [[ "${sp_tag}" != "latest" ]] && [[ "${sp_tag}" != ":latest" ]]; then
     check_result "Socket Proxy Tag Pinning" "PASS" "Pinned tag: ${sp_tag}"
@@ -117,15 +103,15 @@ else
     check_result "Socket Proxy Tag Pinning" "FAIL" "Forbidden :latest tag configured"
 fi
 
-# 6. Admin Email Configuration Check
-admin_email="${ADMIN_EMAIL:-admin@${DOMAIN:-example.com}}"
-if [[ -n "${admin_email}" ]] && [[ ! "${admin_email,,}" =~ ^(change_me|your_.*)$ ]]; then
-    check_result "Admin Email Configuration" "PASS" "Configured: ${admin_email}"
+# 5. Cloudflare Tunnel Token Configuration Check
+cf_token="${CLOUDFLARE_TUNNEL_TOKEN:-}"
+if [[ -n "${cf_token}" ]] && [[ "${cf_token}" != "CHANGE_ME" ]]; then
+    check_result "Cloudflare Tunnel Token" "PASS" "Configured"
 else
-    check_result "Admin Email Configuration" "FAIL" "Unconfigured or placeholder email"
+    check_result "Cloudflare Tunnel Token" "FAIL" "Unconfigured or placeholder token"
 fi
 
-# 7. Layer 2 Platform Container Health Matrix (8 Core Containers)
+# 6. Layer 2 Platform Container Health Matrix (8 Core Containers)
 check_container_health() {
     local cname="$1"
     local display_name="$2"
@@ -144,26 +130,47 @@ check_container_health() {
 
 check_container_health "docker-socket-proxy" "Socket Proxy"
 check_container_health "traefik" "Traefik Ingress"
-check_container_health "cloudflared" "Cloudflare Tunnel"
+check_container_health "cloudflared" "Cloudflare Tunnel Agent"
 check_container_health "prometheus" "Prometheus"
 check_container_health "grafana" "Grafana"
 check_container_health "node-exporter" "Node Exporter"
 check_container_health "uptime-kuma" "Uptime Kuma"
 check_container_health "dozzle" "Dozzle Log Viewer"
 
-# 8. Host Ingress Port 80 Check
-if netstat -tuln 2>/dev/null | grep -E ':(80|0\.0\.0\.0:80) ' >/dev/null || ss -tuln 2>/dev/null | grep -E ':(80|0\.0\.0\.0:80) ' >/dev/null || lsof -i :80 >/dev/null 2>&1; then
-    check_result "Host Ingress Port 80 (HTTP)" "PASS" "Port listening"
+# 7. Cloudflare Tunnel Agent Readiness Verification
+if docker exec cloudflared wget --spider -q http://127.0.0.1:2000/ready >/dev/null 2>&1; then
+    check_result "Cloudflare Tunnel Connection" "PASS" "Agent connected to Cloudflare Edge"
 else
-    check_result "Host Ingress Port 80 (HTTP)" "FAIL" "Port 80 not listening"
+    check_result "Cloudflare Tunnel Connection" "FAIL" "Agent ready endpoint unreachable"
 fi
 
-# 9. Host Ingress Port 443 Check
-if netstat -tuln 2>/dev/null | grep -E ':(443|0\.0\.0\.0:443) ' >/dev/null || ss -tuln 2>/dev/null | grep -E ':(443|0\.0\.0\.0:443) ' >/dev/null || lsof -i :443 >/dev/null 2>&1; then
-    check_result "Host Ingress Port 443 (HTTPS)" "PASS" "Port listening"
+# 8. Traefik Internal HTTP Routing Verification
+if docker exec traefik traefik healthcheck --ping >/dev/null 2>&1; then
+    check_result "Traefik Internal HTTP Router" "PASS" "Ping healthcheck responsive"
 else
-    check_result "Host Ingress Port 443 (HTTPS)" "FAIL" "Port 443 not listening"
+    check_result "Traefik Internal HTTP Router" "FAIL" "Traefik ping check non-responsive"
 fi
+
+# 9. Host Port Isolation Guard (Ports 80 & 443 must NOT be bound to host)
+check_host_port_unbound() {
+    local port="$1"
+    local bound=false
+
+    if command -v ss >/dev/null 2>&1; then
+        if ss -tuln 2>/dev/null | grep -E ":${port}\s" >/dev/null; then bound=true; fi
+    elif command -v netstat >/dev/null 2>&1; then
+        if netstat -tuln 2>/dev/null | grep -E ":${port}\s" >/dev/null; then bound=true; fi
+    fi
+
+    if [[ "${bound}" == "false" ]]; then
+        check_result "Host Security: Port ${port} Isolated" "PASS" "Port not exposed to host"
+    else
+        check_result "Host Security: Port ${port} Isolated" "FAIL" "Port ${port} is listening on host"
+    fi
+}
+
+check_host_port_unbound 80
+check_host_port_unbound 443
 
 printf '%s──────────────────────────────────────────────────────────────────────────────%s\n' "${BOLD}" "${NC}"
 total_checks=$((pass_count + fail_count))

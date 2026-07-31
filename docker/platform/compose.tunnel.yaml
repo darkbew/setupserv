@@ -4,11 +4,12 @@
 #
 # Description:
 #   Compose specification for Cloudflare Zero Trust Tunnel agent (cloudflared).
-#   Provides secure ingress tunnel without exposing public incoming ports.
+#   Provides secure ingress gateway routing external HTTP/HTTPS traffic from Cloudflare Edge
+#   to Traefik (http://traefik:80) over internal Docker bridge network 'proxy-net'.
 #
-# Constraints:
-#   - Connects to Traefik via proxy-net (http://traefik:80).
-#   - Requires CLOUDFLARE_TUNNEL_TOKEN set in .env.
+# Constraints & Security:
+#   - Server exposes NO host incoming ports (ports 80 and 443 on host are NOT bound).
+#   - Requires CLOUDFLARE_TUNNEL_TOKEN configured in .env.
 #
 # ==============================================================================
 
@@ -48,7 +49,7 @@ services:
       resources:
         limits:
           cpus: '0.25'
-          memory: 64M
+          memory: 96M
         reservations:
           cpus: '0.05'
           memory: 16M

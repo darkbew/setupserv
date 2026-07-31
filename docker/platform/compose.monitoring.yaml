@@ -7,6 +7,10 @@
 #   Prometheus, Grafana, Node Exporter, Uptime Kuma, and Dozzle.
 #   Loki, Promtail, and cAdvisor are intentionally excluded to keep RAM < 1.0GB.
 #
+# Cloudflare Tunnel Architecture:
+#   Traefik entrypoint is 'web' (HTTP port 80 internal).
+#   TLS termination is handled at Cloudflare Edge.
+#
 # ==============================================================================
 
 name: platform
@@ -97,9 +101,8 @@ services:
           memory: 64M
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.grafana.rule=Host(`monitor.${DOMAIN}`)"
-      - "traefik.http.routers.grafana.entrypoints=websecure"
-      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.grafana.rule=Host(`${GRAFANA_SUBDOMAIN:-monitor}.${DOMAIN:-example.com}`)"
+      - "traefik.http.routers.grafana.entrypoints=web"
       - "traefik.http.services.grafana.loadbalancer.server.port=3000"
       - "traefik.http.routers.grafana.middlewares=security-headers@file"
 
@@ -169,9 +172,8 @@ services:
           memory: 32M
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.kuma.rule=Host(`status.${DOMAIN}`)"
-      - "traefik.http.routers.kuma.entrypoints=websecure"
-      - "traefik.http.routers.kuma.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.kuma.rule=Host(`${UPTIME_KUMA_SUBDOMAIN:-status}.${DOMAIN:-example.com}`)"
+      - "traefik.http.routers.kuma.entrypoints=web"
       - "traefik.http.services.kuma.loadbalancer.server.port=3001"
       - "traefik.http.routers.kuma.middlewares=security-headers@file"
 
@@ -212,8 +214,7 @@ services:
           memory: 16M
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.dozzle.rule=Host(`logs.${DOMAIN}`)"
-      - "traefik.http.routers.dozzle.entrypoints=websecure"
-      - "traefik.http.routers.dozzle.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dozzle.rule=Host(`${DOZZLE_SUBDOMAIN:-logs}.${DOMAIN:-example.com}`)"
+      - "traefik.http.routers.dozzle.entrypoints=web"
       - "traefik.http.services.dozzle.loadbalancer.server.port=8080"
       - "traefik.http.routers.dozzle.middlewares=security-headers@file"
