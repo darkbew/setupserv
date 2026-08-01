@@ -1,619 +1,312 @@
-# Server Bootstrap Framework
+# Enterprise Server Infrastructure & Bootstrap Framework
 
-> **Enterprise Linux Server Bootstrap Framework** — Modern, Modular, Idempotent, and Security-Hardened Infrastructure Provisioning Engine for Production Environments.
+> **Setupserv Infrastructure Framework** — Multi-Layer, Production-Ready, Security-Hardened Server Provisioning & Container Orchestration Engine for Ubuntu Linux & Docker Environments.
 
 [![Bash 5.2+](https://img.shields.io/badge/Bash-5.2%2B-blue.svg)](https://www.gnu.org/software/bash/)
 [![Ubuntu Server](https://img.shields.io/badge/Ubuntu-22.04%20%7C%2024.04%20LTS-orange.svg)](https://ubuntu.com/server)
-[![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64-brightgreen.svg)](https://en.wikipedia.org/wiki/Computer_architecture)
+[![Docker Compose V2](https://img.shields.io/badge/Docker%20Compose-V2-blue.svg)](https://docs.docker.com/compose/)
+[![Traefik v3](https://img.shields.io/badge/Traefik-v3.4-00ACD6.svg)](https://traefik.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Quality Gate](https://img.shields.io/badge/Quality%20Gate-PASSED-success.svg)](#22-final-summary)
 
 ---
 
-## 1. Project Title
+## 📌 1. Dimana Tempat Menyimpan File Clone?
 
-### **Server Bootstrap Framework**
-*Enterprise-Grade Linux Server Provisioning & Security Hardening Framework.*
-
----
-
-## 2. Overview
-
-**Server Bootstrap Framework** adalah fondasi otomatisasi infrastruktur Linux tingkat enterprise yang dirancang untuk mengonfigurasi, mengamankan, dan memvalidasi server produksi secara instan, aman, dan konsisten.
-
-### Masalah yang Diselesaikan
-- **Inkonsistensi Manual Setup:** Menghilangkan risiko kelalaian konfigurasi manual pada server baru.
-- **Security Misconfiguration:** Memastikan seluruh server yang disebarkan langsung memenuhi standar *Enterprise Security Baseline* (SSH Hardening, UFW, Fail2ban, Sysctl, Journald Log Limits).
-- **Dependency Drift:** Menyediakan platform kontainerisasi modern berbasis Docker Engine & Docker Compose V2 yang terisolasi.
-- **Tethering Remote Access:** Mempermudah pendaftaran server ke jaringan mesh privat via Tailscale WireGuard VPN.
-
-### Kenapa Framework Ini Dibuat?
-Mayoritas skrip instalasi server tradisional bersifat *monolithic*, *brittle* (mudah patah jika terputus), hardcoded, dan terikat pada nama aplikasi/perusahaan tertentu. Framework ini diciptakan sebagai **Universal Framework Netral** yang dapat digunakan oleh siapa saja, untuk organisasi mana saja, pada lingkungan cloud, bare-metal, VPS, VM, maupun home-lab.
-
-### Target Penggunaan
-- Server Produksi Linux (Ubuntu Server 22.04 LTS & 24.04 LTS)
-- Bare Metal Servers, Virtual Machines (VMware/Proxmox), Cloud VPS (AWS, GCP, DigitalOcean, Hetzner), dan Edge Nodes.
-- Arsitektur CPU: `x86_64`, `amd64`, `aarch64`, dan `arm64`.
+> [!IMPORTANT]
+> **Lokasi Standar Deployment:** `/opt/setupserv`
+> 
+> Rekomendasi lokasi penempatan repository saat `git clone` di server Ubuntu:
+> ```bash
+> git clone https://github.com/darkbew/setupserv.git /opt/setupserv
+> cd /opt/setupserv
+> ```
+> 
+> **Mengapa `/opt/setupserv`?**
+> - **Filesystem Hierarchy Standard (FHS):** `/opt` adalah lokasi standar Linux untuk perangkat lunak pihak ketiga yang dikelola secara terpusat.
+> - **Struktur Path Relatif:** Seluruh konfigurasi Docker Compose, volume data (`data/`), log (`logs/`), backup (`backups/`), dan kunci rahasia (`secrets/`) dibuat secara otomatis **di dalam** direktori ini.
+> - **Izin Akses Terisolasi:** Menghindari masalah *Permission Denied* pada volume mount Docker yang sering terjadi jika repository di-clone di dalam folder `/home/user/`.
 
 ---
 
-## 3. Features
+## 🚀 2. Quick Start (Langsung Siap Pakai dalam 3 Langkah)
 
-- **🚀 Master Orchestrator Engine:** Orkestrasi eksekusi terpusat via `install.sh` dengan penanganan pembatalan sinyal `SIGINT/SIGTERM` yang bersih.
-- **🧙 Interactive Configuration Wizard:** Wizard interaktif metadata-driven yang menghasilkan `.env` secara otomatis dengan validasi input, deployment preset (Development/Staging/Production/Custom), interactive review matrix, dan backup otomatis.
-- **⚡ Selective Step Execution (`--step N`):** Kemampuan mengeksekusi satu modul spesifik (misal hanya instalasi Docker `03` atau verifikasi `06`).
-- **🔄 Smart Resume Capability (`--start-from N`):** Melanjutkan eksekusi dari langkah terakhir yang gagal tanpa perlu mengulang dari awal.
-- **🧪 Dry-Run Mode (`--dry-run`):** Mode simulasi penuh untuk menguji alur instalasi tanpa mengubah state atau konfigurasi sistem.
-- **🔁 100% Idempotent Write Engine:** Mekanisme penulisan file `write_config` berbasis perbandingan *SHA-256 Checksum Hashing* dan pembuat cadangan *timestamped backup*.
-- **🛡️ Enterprise Security Baseline:** Penguncian SSH (Phase 1/2), UFW Firewall *Default Deny*, Fail2ban SSH brute-force jail, tuning parameter kernel Sysctl (SYN cookies, RPF, socket limit), dan Journald Log Retention.
-- **🐋 Production Docker Engine:** Instalasi otomatis Docker Engine CE, Compose Plugin V2, Buildx, penyiapan `daemon.json` terisolasi, dan pembuatan `bootstrap-net` bridge network.
-- **🔐 Mesh VPN Tailscale Integration:** Pendaftaran node server otomatis dan aman ke jaringan Tailnet via `TAILSCALE_AUTHKEY`.
-- **📊 Built-in Verification Engine (`06-verify.sh`):** Pengujian *read-only* 25+ parameter kesehatan sistem dengan agregasi status visual `PASS`, `WARN`, `SKIP`, dan `FAIL`.
-- **🛠️ Shared Core Library (`lib/common.sh`):** Pustaka terpusat menyediakan *ANSI-C logging engine*, *ERR call stack trap handler*, *safe file manipulators*, dan *exponential backoff network retry engine*.
+Hanya dengan **3 langkah sederhana**, server Ubuntu Anda akan terotomatisasi secara penuh (hardening keamanan OS, instalasi Docker Engine, konfigurasikan reverse proxy Traefik, monitoring, dan backup otomatis):
 
----
-
-## 4. Architecture
-
-Framework ini menggunakan arsitektur *Modular Decoupled Design* dengan antarmuka yang bersih dan independen.
-
-### Project Directory ASCII Tree
-
-```text
-bootstrap-framework/
-├── .env.example                # Templat konfigurasi environment variables
-├── README.md                   # Dokumentasi resmi enterprise
-├── bootstrap/
-│   ├── install.sh              # Master Orchestrator & CLI Entrypoint
-│   ├── config-wizard.sh        # Interactive Configuration Wizard Orchestrator
-│   ├── config/                 # Configuration Subsystem Modules
-│   │   ├── wizard-metadata.sh  # Declarative Variable Metadata Registry
-│   │   ├── validators.sh       # Pure Validation Functions Engine
-│   │   ├── prompts.sh          # Terminal UI Prompt Helpers
-│   │   ├── presets.sh          # Deployment Presets (Dev/Staging/Prod/Custom)
-│   │   ├── review.sh           # Interactive Review Matrix & Section Editor
-│   │   ├── generator.sh        # .env.example Parser & Backup Engine
-│   │   └── loader.sh           # .env Loader & Configuration Resolver
-│   ├── 00-preflight.sh         # Step 00: Read-Only System Preflight Guard
-│   ├── 01-system-update.sh     # Step 01: APT Update, Upgrade, Base Tools & Locale
-│   ├── 02-user-setup.sh        # Step 02: Deploy User, Sudoers & SSH Directory
-│   ├── 03-install-docker.sh    # Step 03: Docker CE, Compose V2 & daemon.json
-│   ├── 04-install-tailscale.sh # Step 04: Tailscale VPN Client & Node Authentication
-│   ├── 05-security-hardening.sh# Step 05: SSH, UFW, Fail2ban, Sysctl & Journald
-│   ├── 06-verify.sh            # Step 06: Read-Only Post-Bootstrap Verification
-│   └── lib/
-│       └── common.sh           # Core Engine Library (Logging, Traps, Wrappers)
-```
-
-### Hubungan Antar File & Sourcing Engine
-
-```text
-                                 ┌───────────────────────────┐
-                                 │   bootstrap/install.sh    │
-                                 │    (Master Orchestrator)  │
-                                 └─────────────┬─────────────┘
-                                               │ (No .env? → Wizard)
-                                 ┌─────────────▼─────────────┐
-                                 │   config-wizard.sh        │
-                                 │    (Config Subsystem)     │
-                                 │   + config/*.sh modules   │
-                                 └─────────────┬─────────────┘
-                                               │ (.env generated)
-                                               │ (Orchestrates Steps 00–06)
-             ┌─────────────────────────────────┼─────────────────────────────────┐
-             │                                 │                                 │
-   ┌─────────▼─────────┐             ┌─────────▼─────────┐             ┌─────────▼─────────┐
-   │ 00-preflight.sh   │             │ 01-system-upd.sh  │             │ 02-user-setup.sh  │
-   └─────────┬─────────┘             └─────────┬─────────┘             └─────────┬─────────┘
-             │                                 │                                 │
-   ┌─────────▼─────────┐             ┌─────────▼─────────┐             ┌─────────▼─────────┐
-   │ 03-install-doc.sh │             │ 04-install-ts.sh  │             │ 05-sec-harden.sh  │
-   └─────────┬─────────┘             └─────────┬─────────┘             └─────────┬─────────┘
-             │                                 │                                 │
-             └─────────────────────────────────┼─────────────────────────────────┘
-                                               │
-                                     ┌─────────▼─────────┐
-                                     │   06-verify.sh    │
-                                     └─────────┬─────────┘
-                                               │
-                                 ┌─────────────▼─────────────┐
-                                 │   bootstrap/lib/common.sh │
-                                 │    (Core Shared Engine)   │
-                                 └───────────────────────────┘
-```
-
-- **`lib/common.sh` sebagai Core Library:** Seluruh modul (00–06), `install.sh`, dan `config-wizard.sh` wajib meng-`source` pustaka ini. Pustaka ini mengontrol warna ANSI, *ERR Call Stack Trap*, pembuatan file log `/var/log/bootstrap-framework/`, fungsi validasi sistem, serta fungsi pemanipulasi file yang aman terhadap `DRY_RUN`.
-- **`install.sh` sebagai Master Orchestrator:** Mengatur alur eksekusi, memparsing argumen CLI, mengelola durasi eksekusi, meluncurkan Configuration Wizard bila `.env` tidak tersedia, serta menangani kelanjutan *resume* jika terjadi kegagalan.
-- **`config-wizard.sh` sebagai Configuration Orchestrator:** Mengkoordinasikan pemilihan preset, prompting interaktif per-seksi, review matrix, validasi pra-generasi, dan pembuatan file `.env`.
-
----
-
-## 5. Bootstrap Flow
-
-Urutan eksekusi dirancang secara linier dan terurut berdasarkan ketergantungan antar komponen (*strict dependency order*):
-
-```text
-[Config Wizard] ➔ [Step 00] ➔ [Step 01] ➔ [Step 02] ➔ [Step 03] ➔ [Step 04] ➔ [Step 05] ➔ [Step 06]
- .env Setup      Preflight   SysUpdate    UserSetup    Docker CE    Tailscale    Security     Verify
-```
-
-| Step | Script File | Nama Modul | Deskripsi & Responsibilitas |
-| :-: | :--- | :--- | :--- |
-| **00** | `00-preflight.sh` | System Preflight Check | **Strict Read-Only Guard.** Memeriksa izin superuser (EUID 0), OS release (Ubuntu 22.04/24.04), arsitektur CPU, RAM minimal, free disk space, status NTP, dan module keamanan OS. |
-| **01** | `01-system-update.sh` | System Update & Essentials | Mengingest paket dasar OS, memperbarui indeks APT, mengatur System Timezone & Locale, mengaktifkan `fstrim.timer` untuk SSD/NVMe, dan membersihkan cache APT. |
-| **02** | `02-user-setup.sh` | Deploy User Setup | Membuat user operasional non-root (`deploy`), mengonfigurasi passwordless sudoers aman (`440`), membuat direktori SSH (`700`), serta mengimpor SSH Public Key awal. |
-| **03** | `03-install-docker.sh` | Docker Engine Installation | Mengunduh GPG Keyring resmi Docker, membuat sumber APT Docker, menginstal Docker Engine CE + Compose V2 + Buildx, mengonfigurasi `daemon.json`, dan memasukkan user deploy ke grup `docker`. |
-| **04** | `04-install-tailscale.sh` | Tailscale Installation | Mengonfigurasi repositori resmi Tailscale, menginstal paket `tailscale`, mengaktifkan service `tailscaled`, serta mendaftarkan node ke Tailnet via `TAILSCALE_AUTHKEY`. |
-| **05** | `05-security-hardening.sh` | Security Hardening | Menerapkan SSH Hardening Phase 1 (disable root login), UFW default deny policy, Fail2ban SSH jail, Sysctl kernel tuning, Journald log persistence limit (1GB), dan Unattended Security Upgrades. |
-| **06** | `06-verify.sh` | Bootstrap Verification | **Strict Read-Only Engine.** Melakukan pengujian pasca-bootstrap terhadap 25+ parameter kesehatan sistem dan menampilkan laporan ringkasan visual `PASS/WARN/SKIP/FAIL`. |
-
----
-
-## 6. Project Structure
-
-Detail tanggung jawab, output, dan *dependencies* dari setiap file proyek:
-
-### 1. `bootstrap/install.sh`
-- **Tanggung Jawab:** Entrypoint utama orchestrator. Memparsing flag CLI (`--dry-run`, `--step`, `--start-from`), memuat variabel lingkungan `.env`, mengeksekusi skrip anak, serta mencetak ringkasan durasi dan *next steps*.
-- **Output:** `/var/log/bootstrap-framework/bootstrap-YYYYMMDD-HHMMSS.log`.
-- **Dependencies:** `bootstrap/lib/common.sh`, `.env`.
-
-### 2. `bootstrap/00-preflight.sh`
-- **Tanggung Jawab:** Memvalidasi bahwa server memenuhi spesifikasi hardware dan OS minimum sebelum modifikasi dilakukan.
-- **Output:** Status konsol (Log Success / Error). Zero system mutation.
-- **Dependencies:** `bootstrap/lib/common.sh`, `/etc/os-release`, `/proc/meminfo`, `findmnt`.
-
-### 3. `bootstrap/01-system-update.sh`
-- **Tanggung Jawab:** Memperbarui sistem operasi dan menginstal paket utilitas dasar (`curl`, `git`, `htop`, `jq`, `unzip`, `ufw`, dll.).
-- **Output:** Konfigurasi Locale (`/etc/default/locale`), Timezone, `fstrim.timer` active.
-- **Dependencies:** `bootstrap/lib/common.sh`, APT mirrors.
-
-### 4. `bootstrap/02-user-setup.sh`
-- **Tanggung Jawab:** Menyediakan akses user operasional non-root yang terisolasi.
-- **Output:** Account user `deploy`, `/etc/sudoers.d/90-bootstrap-deploy`, `/home/deploy/.ssh/authorized_keys`.
-- **Dependencies:** `bootstrap/lib/common.sh`, `shadow-utils`, `mktemp`.
-
-### 5. `bootstrap/03-install-docker.sh`
-- **Tanggung Jawab:** Menginstal container runtime berstandar produksi.
-- **Output:** `/etc/docker/daemon.json`, `/usr/share/keyrings/docker-archive-keyring.gpg`, Docker bridge network `bootstrap-net`.
-- **Dependencies:** `bootstrap/lib/common.sh`, `download.docker.com`.
-
-### 6. `bootstrap/04-install-tailscale.sh`
-- **Tanggung Jawab:** Mengonfigurasi konektivitas mesh VPN privat.
-- **Output:** Interface `tailscale0`, node status authenticated.
-- **Dependencies:** `bootstrap/lib/common.sh`, `pkgs.tailscale.com`, `TAILSCALE_AUTHKEY`.
-
-### 7. `bootstrap/05-security-hardening.sh`
-- **Tanggung Jawab:** Menutup celah keamanan server (*attack surface reduction*).
-- **Output:** `/etc/ssh/sshd_config.d/99-bootstrap-hardening.conf`, `/etc/fail2ban/jail.d/99-bootstrap.conf`, `/etc/sysctl.d/99-bootstrap.conf`, `/etc/systemd/journald.conf.d/99-bootstrap.conf`, `/etc/apt/apt.conf.d/51bootstrap-unattended`.
-- **Dependencies:** `bootstrap/lib/common.sh`, `openssh-server`, `ufw`, `fail2ban`, `systemd-journald`.
-
-### 8. `bootstrap/06-verify.sh`
-- **Tanggung Jawab:** Melakukan verifikasi independen bahwa seluruh komponen terinstal dan terkonfigurasi dengan benar.
-- **Output:** Visual Health Matrix & exit code `0` (lulus) atau `1` (gagal).
-- **Dependencies:** `bootstrap/lib/common.sh`.
-
-### 9. `bootstrap/lib/common.sh`
-- **Tanggung Jawab:** Shared core engine yang menyediakan pustaka utilitas bersama.
-- **Output:** In-memory helper functions & constants.
-- **Dependencies:** Bash 5.0+.
-
----
-
-## 6.5. Konfigurasi Secrets & Remote Backup (Rclone / GDrive)
-
-Platform menggunakan direktori `secrets/` untuk menyimpan kunci rahasia dan konfigurasi kredensial eksternal yang di-mount secara aman (read-only) ke dalam kontainer backup worker (`compose.backup.yaml`).
-
-### Hak Akses & Pengamanan Direktori
-- **Direktori:** `secrets/` (berada di root proyek).
-- **Hak Akses:** `chmod 700 secrets/` (hanya dapat diakses oleh owner).
-- **Git Isolation:** Seluruh isi direktori `secrets/` di-exclude oleh `.gitignore` (`secrets/*` kecuali `!secrets/.gitkeep`) untuk mencegah kebocoran kredensial ke repositori.
-
-### Isi Direktori `secrets/`
-1. `secrets/rclone.conf` *(Opsional)*: File konfigurasi Rclone kustom untuk provider remote backup (S3, Backblaze B2, Google Drive).
-2. `secrets/gdrive-service-account.json`: Kunci Service Account Google Cloud Platform berformat JSON untuk otentikasi backup otomatis ke Google Drive.
-
-### Format File Konfigurasi Rclone (`secrets/rclone.conf`)
-Jika menggunakan Rclone dengan Service Account Google Drive, buat file `secrets/rclone.conf`:
-
-```ini
-[gdrive]
-type = drive
-scope = drive
-service_account_file = /secrets/gdrive-service-account.json
-```
-
-### Langkah Panduan Setup Google Drive Service Account
-1. Buka [Google Cloud Console](https://console.cloud.google.com/) dan buat proyek baru.
-2. Aktifkan **Google Drive API** pada proyek tersebut.
-3. Buka **IAM & Admin > Service Accounts**, lalu klik **Create Service Account**.
-4. Buat kunci baru (*Create Key*) berformat **JSON**, lalu simpan file tersebut sebagai `secrets/gdrive-service-account.json`.
-5. Share folder Google Drive target ke alamat email Service Account (berakhiran `@...iam.gserviceaccount.com`) dengan permission **Editor**.
-6. Pastikan file terhubung di `.env`: `BACKUP_GDRIVE_SA_FILE=secrets/gdrive-service-account.json` dan `BACKUP_REMOTE_NAME=gdrive`.
-
----
-
-## 7. Installation
-
-Ikuti langkah-langkah berikut untuk memulai penggunaan **Server Bootstrap Framework** pada server Ubuntu baru:
-
-### Langkah 1: Clone Repositori Proyek
-Login ke server target sebagai root (atau jalankan via `sudo`):
-
+### Langkah 1: Clone Repository
 ```bash
-git clone https://github.com/your-org/server-bootstrap-framework.git /opt/bootstrap-framework
-cd /opt/bootstrap-framework
+git clone https://github.com/darkbew/setupserv.git /opt/setupserv
+cd /opt/setupserv
 ```
 
-### Langkah 2: Salin & Konfigurasi File Environment
-Salin templat `.env.example` menjadi `.env`:
+### Langkah 2: Buat Konfigurasi Environment (`.env`)
+Anda dapat menggunakan **Interactive Configuration Wizard**:
+```bash
+sudo bash bootstrap/install.sh
+```
+*(Jika file `.env` belum ada, wizard interaktif akan otomatis diluncurkan untuk memandu pengisian variabel).*
 
+Atau buat file `.env` manual dari templat `.env.example`:
 ```bash
 cp .env.example .env
-```
-
-Edit file `.env` menggunakan editor teks (misal `nano` atau `vim`):
-
-```bash
 nano .env
 ```
 
-Ubah nilai variabel utama sesuai kebutuhan server Anda (khususnya `DEPLOY_USER`, `TAILSCALE_AUTHKEY`, `TZ`, dan `LOCALE`).
-
-### Langkah 3: Atur Hak Akses Skrip
-Pastikan skrip utama dapat dieksekusi:
-
+### Langkah 3: Jalankan Platform Infrastructure
 ```bash
-chmod +x bootstrap/install.sh bootstrap/*.sh
+make platform
 ```
 
-### Langkah 4: Jalankan Master Installer
-Eksekusi pengatur instalasi utama (wizard akan diluncurkan secara otomatis bila `.env` belum ada):
-
-```bash
-sudo bash bootstrap/install.sh
-```
+🎉 **Selesai!** Seluruh 8 kontainer infrastruktur platform (Traefik, Docker Socket Proxy, Prometheus, Grafana, Node Exporter, Uptime Kuma, Dozzle, dan Backup Worker) langsung aktif dan terpantau secara *healthcheck*.
 
 ---
 
-## 7.5. Interactive Configuration Wizard
+## 🏗️ 3. Arsitektur Infrastruktur (Multi-Layer Architecture)
 
-Framework menyediakan **Interactive Configuration Wizard** yang secara otomatis diluncurkan ketika file `.env` tidak ditemukan, atau dapat dipaksa dengan flag `--wizard`.
-
-### Alur Konfigurasi
+Framework ini membagi infrastruktur server ke dalam 3 Layer independen dan terisolasi:
 
 ```text
-sudo bash bootstrap/install.sh
-        │
-    .env ada?
-     ├── YA ──► "Gunakan konfigurasi yang ada? [Y/n]"
-     │             ├── Y ──► Load .env ──► Jalankan Steps 00–06
-     │             └── N ──► Luncurkan Wizard
-     └── TIDAK ──► Luncurkan Wizard otomatis
-                      │
-                  Wizard Selesai
-                      ├── 1) Install Server ──► Load .env ──► Steps 00–06
-                      ├── 2) Edit .env ────────► ${EDITOR} ──► Menu
-                      └── 3) Exit ─────────────► Keluar
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           END USERS / INTERNET                              │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+            ┌──────────────────────────┴──────────────────────────┐
+            ▼ (Mode A: Tunnel)                                    ▼ (Mode B: Public)
+┌───────────────────────────────┐                     ┌───────────────────────┐
+│ Cloudflare Zero Trust Ingress │                     │ Direct Public IP      │
+│ (Cloudflared Container)       │                     │ (Port 80/443 Exposed) │
+└───────────────┬───────────────┘                     └───────────┬───────────┘
+                │ (HTTP Port 80)                                  │ (HTTP/HTTPS)
+                └──────────────────────────┬──────────────────────┘
+                                           ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ LAYER 2: PLATFORM INFRASTRUCTURE (Managed via `make platform`)              │
+│                                                                             │
+│  [ Traefik v3 Reverse Proxy ] ◄────► [ Docker Socket Proxy (API Security) ] │
+│               │                                                             │
+│               ├──────────────────────┬──────────────────────┐               │
+│               ▼                      ▼                      ▼               │
+│     [ Grafana Dashboard ]  [ Prometheus Metrics ]  [ Uptime Kuma Status ]   │
+│               │                      │                      │               │
+│               └──────────────────────┴──────────────────────┘               │
+│               │                      │                                      │
+│               ▼                      ▼                                      │
+│     [ Node Exporter ]      [ Dozzle Log Viewer ]   [ Backup Worker Worker ] │
+└───────────────┬─────────────────────────────────────────────────────────────┘
+                │ (Bridge Network Isolation: proxy-net / backend-net)
+                ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ LAYER 3: BUSINESS APPLICATIONS (Managed via `make app-up APP=<folder>`)     │
+│                                                                             │
+│  ┌───────────────────────────┐             ┌─────────────────────────────┐  │
+│  │ Web Frontend App / Frappe │             │ MariaDB / PostgreSQL DB     │  │
+│  │ (Connected to `proxy-net`)│────────────►│ (Strictly `backend-net`)    │  │
+│  └───────────────────────────┘             └─────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Deployment Presets
+### Prinsip Keamanan Utama:
+1. **Network Segmentation:**
+   - **`proxy-net`**: Jaringan eksternal untuk rute HTTP reverse proxy Traefik ke kontainer frontend/web.
+   - **`backend-net`**: Jaringan internal terisolasi untuk komunikasi antar-aplikasi dan database (Database **DILARANG** masuk `proxy-net`).
+   - **`monitoring-net`**: Jaringan khusus pengumpulan metrik Prometheus & Dozzle.
+2. **Zero Host Exposure Default:** Dalam mode default (`INGRESS_MODE=tunnel`), tidak ada port 80 atau 443 yang dibuka pada host server.
+3. **Least Privilege Container Runtime:** Kontainer berjalan dengan penguncian `security_opt: ["no-new-privileges:true"]`, `cap_drop: ["ALL"]`, dan *read-only root filesystem*.
 
-Wizard menyediakan empat profil preset:
+---
 
-| Preset | Docker | Security | Tailscale | Monitoring | Backup | Traefik |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Development** | ✓ | Minimal | ✗ | ✗ | ✗ | ✗ |
-| **Staging** | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
-| **Production** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Custom** | ? | ? | ? | ? | ? | ? |
-
-### Review Matrix
-
-Sebelum men-generate `.env`, wizard menampilkan review matrix interaktif yang memungkinkan pengguna mengedit seksi tertentu sebelum konfirmasi final:
+## 📁 4. Struktur Folder Repository
 
 ```text
-══════════════════════════════════════════════════════════
-  CONFIGURATION SUBSYSTEM — REVIEW MATRIX & VALIDATION
-══════════════════════════════════════════════════════════
-
-  [PASS] 1) General     : Hostname: prod-01 | Domain: example.com
-  [PASS] 2) Docker      : Status: yes | Network: bootstrap-net
-  [PASS] 3) Security    : RootLogin: no | UFW: yes | Fail2ban: yes
-  [PASS] 4) Tailscale   : Status: yes | Hostname: prod-01
-  [PASS] 5) Monitoring  : Status: yes | Grafana: yes
-  [PASS] 6) Backup      : Status: yes | Schedule: 0 2 * * *
-  [PASS] 7) Traefik     : Status: yes | User: admin
-  [PASS] 8) Cloudflare  : Status: no
-──────────────────────────────────────────────────────────
-
-  1-8) Edit specific section
-  G)   Generate Configuration & Continue
-  Q)   Quit Wizard
+/opt/setupserv/
+├── .env.example                    # Templat variabel lingkungan resmi
+├── .gitignore                      # Rule isolasi file sensitif & data runtime
+├── Makefile                        # Antarmuka perintah operasional utama (make <target>)
+├── README.md                       # Dokumentasi resmi proyek
+├── CHANGELOG.md                    # Catatan versi dan perubahan
+├── LICENSE                         # Lisensi lisensial MIT
+│
+├── bootstrap/                      # Layer 1: Ubuntu OS Hardening & Provisioning Engine
+│   ├── install.sh                  # Master installer script & CLI entrypoint
+│   ├── config-wizard.sh            # Orchestrator wizard interaktif
+│   ├── 00-preflight.sh             # Read-only health guard OS/hardware
+│   ├── 01-system-update.sh         # APT update, base packages, timezone, locale
+│   ├── 02-user-setup.sh            # Pengaturan user deploy & passwordless sudoers
+│   ├── 03-install-docker.sh        # Instalasi Docker Engine CE & Compose Plugin V2
+│   ├── 04-install-tailscale.sh     # Setup Tailscale Mesh VPN node
+│   ├── 05-security-hardening.sh    # Hardening SSH, UFW, Fail2ban, Sysctl, Journald
+│   ├── 06-verify.sh                # Verifikasi independen pasca-bootstrap OS
+│   ├── config/                     # Submodul wizard konfigurasi (.env generator)
+│   └── lib/                        # Shared library (logging, safe file manipulators, traps)
+│
+├── configs/                        # Konfigurasi Statis Service Platform (Mounted Read-Only)
+│   ├── traefik/                    # Configuration Traefik v3 static & dynamic middlewares
+│   ├── prometheus/                 # Scrape configs & retention limits
+│   └── grafana/                    # Automatic provisioning dashboards & datasources
+│
+├── docker/                         # Docker Compose Specifications
+│   ├── platform/                   # Layer 2 Infrastructure Compose Overlays
+│   │   ├── compose.yaml            # Base compose (Traefik + Docker Socket Proxy)
+│   │   ├── compose.monitoring.yaml # Monitoring overlay (Prometheus, Grafana, Node Exporter, Kuma, Dozzle)
+│   │   ├── compose.tunnel.yaml     # Cloudflare Tunnel agent overlay
+│   │   └── compose.backup.yaml     # Automated Backup Worker overlay
+│   └── apps/                       # Layer 3 Application Deployments
+│       ├── README.md               # Panduan pembuatan & standar rute aplikasi Layer 3
+│       └── template/               # Templat compose.yaml siap pakai (Single App & App + DB)
+│
+├── scripts/                        # Operational Management Scripts
+│   ├── deploy-platform.sh          # Orchestrator deployment Layer 2 platform
+│   ├── destroy-platform.sh         # Tear down Layer 2 platform containers
+│   ├── status-platform.sh          # Matriks status & healthcheck platform
+│   ├── logs-platform.sh            # Log streaming platform
+│   ├── verify-platform.sh          # Matrix validator kesehatan platform
+│   ├── backup.sh                   # Script eksekusi backup otomatis (di dalam container)
+│   └── restore.sh                  # Script restore data & dekripsi backup
+│
+├── backups/                        # Tempat simpan arsip backup lokal & staging restore (git-ignored)
+├── data/                           # Volume data persistent kontainer (git-ignored)
+├── logs/                           # Runtime log files (git-ignored)
+└── secrets/                        # Kredensial rahasia & Google Drive Service Account (git-ignored)
 ```
-
-### Validasi & Password Policy
-
-- Semua input divalidasi secara real-time (hostname RFC 1123, domain FQDN, port 1–65535, timezone IANA, cron 5-field, dll.)
-- Password menggunakan `read -s` (hidden input), minimum 12 karakter, evaluasi kekuatan (Weak/Medium/Strong), dan konfirmasi ulang.
-- Password lemah memerlukan konfirmasi eksplisit sebelum diterima.
-
-### Backup `.env`
-
-Jika file `.env` sudah ada saat wizard menghasilkan konfigurasi baru, file lama secara otomatis dicadangkan ke `.env.bak.YYYYMMDD-HHMMSS`.
 
 ---
 
-## 8. Command Reference
+## 🛠️ 5. Panduan Operasional Perintah (`Makefile`)
 
-Framework menyediakan berbagai opsi perintah untuk fleksibilitas pengoperasian:
+Gunakan perintah `make` dari direktori `/opt/setupserv`:
 
-### 1. Eksekusi Instalasi Penuh (Production Run)
-Menjalankan wizard konfigurasi (jika `.env` belum ada) kemudian seluruh langkah dari Step 00 hingga Step 06:
+| Perintah | Fungsi / Deskripsi |
+| :--- | :--- |
+| `make platform` | Menjalankan seluruh stack infrastruktur Layer 2 (Platform & Monitoring). |
+| `make platform-down` | Menghentikan seluruh kontainer Layer 2 platform secara aman. |
+| `make platform-restart` | Me-restart seluruh kontainer Layer 2 platform. |
+| `make platform-status` | Menampilkan matriks status *healthcheck* & alokasi resource kontainer. |
+| `make platform-logs` | Streaming log terintegrasi seluruh kontainer platform. |
+| `make ingress-tunnel` | Mengubah mode ingress ke **Cloudflare Tunnel** (No host ports exposed). |
+| `make ingress-public` | Mengubah mode ingress ke **Direct Public IP** (Port 80/443 + Let's Encrypt). |
+| `make app-up APP=<folder>` | Deploy aplikasi Layer 3 dari `docker/apps/<folder>`. |
+| `make app-down APP=<folder>` | Menghentikan aplikasi Layer 3 dari `docker/apps/<folder>`. |
+| `make app-status APP=<folder>` | Menampilkan status kontainer aplikasi Layer 3. |
+| `make app-logs APP=<folder>` | Streaming log kontainer aplikasi Layer 3. |
+| `make verify` | Menjalankan pengujian independen kesehatan platform. |
+| `make clean` | Membersihkan log & file runtime sementara. |
 
+---
+
+## 🌐 6. Dual-Mode Ingress Architecture
+
+Platform dapat di-switch antara **dua arsitektur ingress** tanpa mengubah compose file:
+
+### Mode A: Cloudflare Tunnel (`INGRESS_MODE=tunnel`)
+- **Keunggulan:** Bebas dari serangan DDoS langsung, IP asli server tersembunyi, tidak ada port 80/443 yang dibuka di host.
+- **Cara Aktivasi:**
+  ```bash
+  make ingress-tunnel
+  ```
+
+### Mode B: Direct Public IP (`INGRESS_MODE=public`)
+- **Keunggulan:** Cocok untuk deployment bare-metal/VPS tanpa jaringan Cloudflare. Traefik otomatis mengelola sertifikat SSL Let's Encrypt ACME.
+- **Cara Aktivasi:**
+  ```bash
+  make ingress-public
+  ```
+
+> [!NOTE]
+> **Pengguna Proxmox VE / NAT VPS:**
+> Jika VM Anda berada di belakang Proxmox NAT bridge (`vmbr0`), pastikan aturan *Port Forwarding* `iptables` di host Proxmox mengarahkan port 80 dan 443 ke IP VM Ubuntu Anda:
+> ```bash
+> iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 80 -j DNAT --to-destination <IP_VM_UBUNTU>:80
+> iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 443 -j DNAT --to-destination <IP_VM_UBUNTU>:443
+> ```
+
+---
+
+## 🚀 7. Menjalankan Aplikasi Layer 3 (`docker/apps/`)
+
+### Cara Menambahkan Aplikasi Baru:
+
+1. Buat direktori baru di dalam `docker/apps/`:
+   ```bash
+   mkdir -p docker/apps/my-app
+   ```
+
+2. Salin templat compose resmi:
+   - **Aplikasi Tanpa Database:**
+     ```bash
+     cp docker/apps/template/compose.app.yaml docker/apps/my-app/compose.yaml
+     ```
+   - **Aplikasi Dengan Database (MariaDB/PostgreSQL):**
+     ```bash
+     cp docker/apps/template/compose.app-with-db.yaml docker/apps/my-app/compose.yaml
+     ```
+
+3. Edit `docker/apps/my-app/compose.yaml` (sesuaikan nama service, label subdomain, dan port internal).
+
+4. Jalankan aplikasi:
+   ```bash
+   make app-up APP=my-app
+   ```
+
+---
+
+## 🔒 8. Kredensial & Secrets Management (`secrets/`)
+
+Seluruh file rahasia disimpan di folder `secrets/` (di-ignore oleh git, izin akses `700`):
+
+### Kebutuhan Backup Offsite (Google Drive / Rclone):
+1. Buat file `secrets/gdrive-service-account.json` berisi Service Account JSON dari Google Cloud Console.
+2. *(Opsional)* Buat file `secrets/rclone.conf`:
+   ```ini
+   [gdrive]
+   type = drive
+   scope = drive
+   service_account_file = /secrets/gdrive-service-account.json
+   ```
+
+---
+
+## 💾 9. Otomatisasi Backup & Restore
+
+### Backup System (`scripts/backup.sh`)
+- Menjalankan arsip konfigurasi dan dump data secara otomatis berdasarkan jadwal cron (`BACKUP_SCHEDULE`).
+- Mengenkripsi file cadangan menggunakan enkripsi **AES-256-CBC** (`BACKUP_ENCRYPTION_KEY`).
+- Mengunggah backup terenkripsi ke Google Drive / Remote Storage via Rclone.
+- Mengatur retensi file lokal (`BACKUP_LOCAL_RETENTION_DAYS=7`).
+
+### Restore System (`scripts/restore.sh`)
+Untuk mengembalikan data dari backup remote:
 ```bash
-sudo bash bootstrap/install.sh
-```
+# 1. Daftar backup yang tersedia di remote storage
+docker exec -it backup-worker /scripts/restore.sh
 
-### 2. Force Configuration Wizard
-Memaksa peluncuran Configuration Wizard meskipun `.env` sudah tersedia:
-
-```bash
-sudo bash bootstrap/install.sh --wizard
-sudo bash bootstrap/install.sh -w
-```
-
-### 3. Mode Simulasi (Dry-Run Mode)
-Menyelimuti seluruh perintah mutasi sehingga Anda dapat melihat simulasi tanpa mengubah sistem:
-
-```bash
-sudo bash bootstrap/install.sh --dry-run
-# ATAU via variabel lingkungan:
-DRY_RUN=true sudo bash bootstrap/install.sh
-```
-
-### 4. Eksekusi Modul Selektif (`--step STEP`)
-Menjalankan hanya satu modul tertentu (contoh: hanya instalasi Docker `03`):
-
-```bash
-sudo bash bootstrap/install.sh --step 03
-```
-
-### 5. Mode Resume / Start From (`--start-from STEP`)
-Melanjutkan instalasi mulai dari langkah tertentu hingga akhir (contoh: melanjutkan dari Step 04):
-
-```bash
-sudo bash bootstrap/install.sh --start-from 04
-```
-
-### 6. Verifikasi Kesehatan Sistem Berdiri Sendiri (Standalone Verify)
-Menjalankan mesin verifikasi kapan saja untuk memeriksa kondisi server saat ini:
-
-```bash
-sudo bash bootstrap/06-verify.sh
+# 2. Restore dari timestamp spesifik
+docker exec -it backup-worker /scripts/restore.sh 2026-08-01_02-00-00 configs
 ```
 
 ---
 
-## 9. Environment Variables
+## 🛡️ 10. OS Hardening Baseline (Step 05)
 
-Seluruh variabel konfigurasi disimpan secara terpusat di file `.env`. Tabel berikut merangkum opsi yang tersedia:
-
-| Variabel | Deskripsi | Default Value | Fallback / Opsi |
-| :--- | :--- | :--- | :--- |
-| `COMPOSE_PROJECT_NAME` | Project ID (prefix Docker container & network) | `bootstrap` | Nama project |
-| `TZ` | Server Timezone (IANA Format) | `Asia/Jakarta` | `UTC` |
-| `LOCALE` | System Locale Settings | `en_US.UTF-8` | `en_US.UTF-8` |
-| `DEPLOY_USER` | Nama user operasional non-root | `deploy` | `${OPERATIONAL_USER}` |
-| `DEPLOY_USER_SHELL` | Shell default untuk user deploy | `/bin/bash` | `/bin/bash` |
-| `DEPLOY_USER_PUBKEY` | SSH Public Key awal untuk ditaruh di `authorized_keys` | `""` | `""` |
-| `DOCKER_NETWORK_NAME` | Nama default bridge network Docker | `bootstrap-net` | `bootstrap-net` |
-| `DOCKER_LOG_MAX_SIZE` | Ukuran maksimum per file log container | `10m` | `10m` |
-| `DOCKER_LOG_MAX_FILE` | Jumlah rotasi file log container | `3` | `3` |
-| `TAILSCALE_AUTHKEY` | Key otentikasi node Tailscale | `CHANGE_ME` | (Kosong = Skip step 04) |
-| `TAILSCALE_HOSTNAME` | Hostname node server pada jaringan Tailnet | `bootstrap-server` | Hostname sistem |
-| `TAILSCALE_ACCEPT_DNS` | Menggunakan DNS resolver dari Tailnet | `false` | `true / false` |
-| `TAILSCALE_ACCEPT_ROUTES` | Menerima subnet routes dari Tailnet | `true` | `true / false` |
-| `TAILSCALE_SSH` | Mengaktifkan Tailscale SSH Server feature | `false` | `true / false` |
-| `SSH_PASSWORD_AUTH` | Mengizinkan otentikasi password SSH (Phase 1) | `yes` | `no` (Phase 2) |
-| `SSH_MAX_AUTH_TRIES` | Batas maksimum percobaan login SSH | `3` | `3` |
-| `FAIL2BAN_MAXRETRY` | Percobaan gagal SSH sebelum dibanned Fail2ban | `3` | `3` |
-| `FAIL2BAN_BANTIME` | Durasi penutupan IP (detik) oleh Fail2ban | `3600` (1 jam) | `3600` |
-| `JOURNALD_MAX_USE` | Batas maksimum ruang simpan log Journald | `1G` | `1G` |
-| `PREFLIGHT_MIN_RAM_MB` | Batas minimal RAM yang diizinkan (MB) | `2048` | `2048` |
-| `PREFLIGHT_MIN_DISK_GB` | Batas minimal ruang disk bebas (GB) | `20` | `20` |
+Modul `05-security-hardening.sh` secara otomatis mengonfigurasi:
+- **SSH Hardening:** Disable root login (`PermitRootLogin no`), pembatasan percobaan login (`MaxAuthTries 3`), enforcement SSH Key.
+- **UFW Firewall:** Default deny incoming policy, mengizinkan SSH port kustom & interface Tailscale.
+- **Fail2ban Protection:** SSH brute-force jail otomatis dengan durasi banned 1 jam.
+- **Sysctl Kernel Tuning:** Proteksi SYN Flood, anti ICMP Redirects, anti IP Spoofing.
+- **Journald Log Quota:** Batas maksimum ruang simpan log 1GB.
 
 ---
 
-## 10. Security Baseline
+## ❓ 11. Troubleshooting (FAQ)
 
-Framework secara otomatis menerapkan kebijakan *Defense-in-Depth* berstandar industri:
+### 1. Traefik Return 404 Not Found
+- **Penyebab:** Label `traefik.enable=true` tidak terpasang atau subdomain pada `rule=Host(...)` tidak cocok dengan FQDN di `.env`.
+- **Solusi:** Jalankan `make platform-status` untuk memverifikasi router aktif.
 
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                        DEFENSE-IN-DEPTH MATRIX                         │
-├───────────────────┬────────────────────────────────────────────────────┤
-│ Komponen Keamanan │ Implementasi Hardening Baseline                    │
-├───────────────────┼────────────────────────────────────────────────────┤
-│ OpenSSH Hardening │ PermitRootLogin no, MaxAuthTries 3, LogLevel VERB  │
-│ Access Control    │ AllowUsers ${DEPLOY_USER}, PasswordAuth Phase 1/2  │
-│ UFW Firewall      │ Default Deny Incoming, Allow SSH Private/Tailscale │
-│ Fail2ban Protection│ SSH Jail (Bantime: 1h, Maxretries: 3, Systemd)     │
-│ Sysctl Tuning     │ SYN Cookies, Anti-ICMP Redirects, Anti-IP Spoofing │
-│ Log Retention     │ Systemd Journald persistent log quota 1GB          │
-│ Auto Updates      │ Unattended Security Upgrades (No auto-reboot)      │
-└───────────────────┴────────────────────────────────────────────────────┘
-```
+### 2. Docker Permission Denied pada Volume Mount
+- **Penyebab:** UID/GID kontainer tidak memiliki akses write pada folder `data/`.
+- **Solusi:** `deploy-platform.sh` me-reset izin akses data secara otomatis. Jalankan kembali `make platform-restart`.
 
 ---
 
-## 11. Verification
+## 📄 12. License
 
-Mesin verifikasi (`06-verify.sh`) bertindak sebagai auditor internal independen yang menjamin kualitas server pasca-bootstrap.
-
-### Membaca Indicator Status
-- `[PASS]` (Hijau): Komponen terpasang, aktif, dan memenuhi parameter baseline.
-- `[WARN]` (Kuning): Komponen berfungsi namun perlu perhatian (misal PasswordAuthentication masih `yes` pada Phase 1).
-- `[SKIP]` (Biru): Komponen sengaja dilewati (misal Tailscale dilewati karena `TAILSCALE_AUTHKEY` tidak diisi).
-- `[FAIL]` (Merah): Komponen penting gagal terpasang atau tidak aktif. Menyebabkan exit code `1`.
-
----
-
-## 12. Idempotency
-
-Framework menjamin bahwa eksekusi berulang (*re-execution*) aman dan tidak merusak sistem (*zero destructive side-effects*).
-
-### Mekanisme `write_config` & Checksum Hashing
-Setiap penulisan file konfigurasi (SSH, Fail2ban, Sysctl, Docker `daemon.json`) menggunakan fungsi `write_config()` di `lib/common.sh`:
-
-1. Menghitung SHA-256 hash dari konten baru.
-2. Membandingkannya dengan SHA-256 hash file yang ada di sistem.
-3. **Short-Circuit:** Jika hash **sama**, penulisan dilewati (*skipped*).
-4. Jika hash **berbeda**, skrip otomatis membuat file cadangan *timestamped backup* (`file.conf.bak.YYYYMMDD-HHMMSS`) sebelum menulis isi baru.
-
----
-
-## 13. Logging
-
-Seluruh output konsol dan jejak eksekusi dicatat secara terpusat:
-
-- **Lokasi Log:** `/var/log/bootstrap-framework/`
-- **Format File Log:** `bootstrap-YYYYMMDD-HHMMSS.log`
-
-### Cara Membaca File Log
-Untuk memantau log secara real-time saat bootstrap berjalan:
-
-```bash
-tail -f /var/log/bootstrap-framework/bootstrap-*.log
-```
-
----
-
-## 14. Supported Platform
-
-Framework diuji dan tersertifikasi secara resmi untuk platform berikut:
-
-- **Operating System:** Ubuntu Server 22.04 LTS (Jammy Jellyfish) & Ubuntu Server 24.04 LTS (Noble Numbat).
-- **Processor Architecture:** `x86_64` (amd64) dan `aarch64` (arm64).
-
----
-
-## 15. Requirements
-
-Spesifikasi minimum server agar framework dapat berjalan optimal:
-
-- **RAM:** Minimal 2 GB (Rekomendasi: 8 GB+).
-- **Disk:** Minimal 20 GB ruang bebas pada root partition `/`.
-- **Akses Privilege:** Hak akses root (`EUID 0`).
-- **Konektivitas Network:** Koneksi internet outbound untuk mengunduh paket APT dan GPG keyrings.
-
----
-
-## 16. Troubleshooting
-
-### FAQ Solusi Masalah Umum
-
-#### 1. Docker Gagal Terinstal
-*Penyebab:* Konflik dengan repositori lama atau masalah koneksi mirror APT.  
-*Solusi:* Jalankan `sudo apt-get update && sudo apt-get install -f`, lalu jalankan kembali skrip via `sudo bash bootstrap/install.sh --step 03`.
-
-#### 2. Kunci APT Terkunci (APT Lock Error)
-*Penyebab:* Service `unattended-upgrades` bawaan Ubuntu sedang berjalan di background.  
-*Solusi:* Tunggu beberapa saat atau matikan sementara: `sudo systemctl stop unattended-upgrades`.
-
-#### 3. Terkunci dari SSH (SSH Lockout)
-*Penyebab:* User operasional belum berhasil dibuat atau port SSH terblokir firewall.  
-*Solusi:* Framework memvalidasi sintaks via `sshd -t` sebelum mere-load SSH dan mengizinkan SSH dari subnet privat. Jika perlu, pastikan Anda bisa login sebagai user `deploy` sebelum mematikan `PasswordAuthentication`.
-
-#### 4. Tailscale Login Fail / Pending Authorization
-*Penyebab:* `TAILSCALE_AUTHKEY` kedaluwarsa atau membutuhkan persetujuan di admin console.  
-*Solusi:* Buat AuthKey baru di dashboard Tailscale, perbarui di `.env`, lalu jalankan `sudo bash bootstrap/install.sh --step 04`.
-
----
-
-## 17. Development
-
-Framework dirancang dengan arsitektur yang sangat mudah diperluas (*extensible*).
-
-### Cara Menambahkan Modul Baru (Contoh: Step 07 - Monitoring)
-
-1. Buat file baru `bootstrap/07-monitoring.sh`:
-
-```bash
-#!/usr/bin/env bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/lib/common.sh"
-
-main() {
-    check_root
-    print_header "Monitoring Setup" "Installing Prometheus & Grafana agents"
-    log_info "Configuring monitoring services..."
-    log_success "Monitoring baseline configured"
-}
-
-main "$@"
-```
-
-2. Daftarkan langkah baru pada array `steps` di `bootstrap/install.sh`:
-
-```bash
-local steps=(
-    "00:System Preflight Check:00-preflight.sh"
-    ...
-    "06:Bootstrap Verification:06-verify.sh"
-    "07:Monitoring Setup:07-monitoring.sh"
-)
-```
-
----
-
-## 18. Coding Standard
-
-Seluruh kontribusi kode pada proyek ini wajib mematuhi standar berikut:
-
-- **Strict Mode:** Seluruh skrip wajib mencantumkan `set -Eeuo pipefail`.
-- **ShellCheck Compliance:** Bebas dari peringatan linter `shellcheck`.
-- **Scoped Local Variables:** Seluruh variabel di dalam fungsi wajib menggunakan kata kunci `local`.
-- **Quoted Variable Expansion:** Seluruh ekspansi variabel wajib dibungkus tanda kutip ganda (`"${variable}"`).
-- **Zero Subshell Anti-Patterns:** Gunakan native Bash constructs (`<<<`, `[[ ... ]]`, regex match) daripada subshell fork berulang.
-- **Dry-Run Friendly:** Seluruh aksi mutasi wajib memeriksa `DRY_RUN == "true"` via helper di `lib/common.sh`.
-
----
-
-## 19. Versioning
-
-Framework ini mengikuti prinsip **Semantic Versioning (SemVer 2.0.0)**:
-
-- **Current Version:** `v0.1.0`
-- **Release Channel:** Stable LTS.
-
----
-
-## 20. License
-
-Proyek ini dilesensikan di bawah **MIT License**. Lihat file [LICENSE](LICENSE) untuk rincian selengkapnya.
-
----
-
-## 21. Contributing
-
-Panduan singkat kontribusi:
-
-1. Fork repositori proyek ini.
-2. Buat feature branch baru (`git checkout -b feature/amazing-feature`).
-3. Pastikan kode lolos verifikasi linter ShellCheck (`shellcheck bootstrap/*.sh`).
-4. Commit perubahan Anda (`git commit -m 'feat: Add amazing feature'`).
-5. Push ke branch Anda (`git push origin feature/amazing-feature`).
-6. Buat Pull Request baru.
-
----
-
-## 22. Final Summary
-
-**Server Bootstrap Framework** berbeda secara fundamental dari installer bash biasa. Dengan memisahkan mesin pembantu (*Shared Core Engine* `lib/common.sh`), pengatur utama (*Master Orchestrator* `install.sh`), dan modul terisolasi (*Decoupled Workflow Modules* 00–06), framework ini menyajikan jaminan **Zero Bug**, **Zero Hardcode**, **100% Idempotency**, dan **Enterprise Production Readiness**.
-
-```text
-===============================================================================
-       GOLDEN BASELINE CERTIFIED — PRODUCTION READY — ENTERPRISE READY
-===============================================================================
-```
+Proyek ini dilesensikan di bawah **MIT License**. Lihat file [LICENSE](LICENSE) untuk detail rincian.

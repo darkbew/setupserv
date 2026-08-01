@@ -82,7 +82,6 @@ node_modules/
 # ==========================
 # Cloudflare Tunnel
 # ==========================
-*.json
 cloudflared/
 tunnel.json
 
@@ -92,19 +91,13 @@ tunnel.json
 tailscale.state
 
 # ==========================
-# Grafana
+# Platform Data & State
 # ==========================
+data/prometheus/data/
+data/grafana/data/
+data/uptime-kuma/data/
+data/traefik/acme.json
 grafana.db
-
-# ==========================
-# Prometheus
-# ==========================
-prometheus/data/
-
-# ==========================
-# Loki
-# ==========================
-loki/
 
 # ==========================
 # Certificates

@@ -26,7 +26,7 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-    entrypoint: ["/bin/sh", "-c", "echo \"$${BACKUP_SCHEDULE:-0 2 * * *} /bin/sh /scripts/backup.sh >> /var/log/backup.log 2>&1\" > /etc/crontabs/root && /bin/sh /scripts/backup.sh || true; exec crond -f -l 2"]
+    entrypoint: ["/bin/sh", "-c", "printf '%s /bin/sh /scripts/backup.sh >> /var/log/backup.log 2>&1\\n' \"$$(echo \"$${BACKUP_SCHEDULE:-0 2 * * *}\" | tr -d '\\n;&|')\" > /etc/crontabs/root && /bin/sh /scripts/backup.sh || true; exec crond -f -l 2"]
     environment:
       - BACKUP_SCHEDULE=${BACKUP_SCHEDULE:-0 2 * * *}
       - BACKUP_LOCAL_RETENTION_DAYS=${BACKUP_LOCAL_RETENTION_DAYS:-7}

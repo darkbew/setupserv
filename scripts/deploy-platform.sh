@@ -69,7 +69,7 @@ if [[ ! -f "${PROJECT_ROOT}/data/traefik/acme.json" ]]; then
     log_info "Initialized data/traefik/acme.json with 600 permissions"
 fi
 
-local ingress_mode="${INGRESS_MODE:-tunnel}"
+ingress_mode="${INGRESS_MODE:-tunnel}"
 log_info "Ingress Architecture Mode: [${ingress_mode,,}]"
 
 # Enforce correct container ownership on data directories to prevent permission errors
@@ -102,14 +102,18 @@ if [[ "${missing_cfg}" -gt 0 ]]; then
 fi
 log_success "All required configuration files verified"
 
-# Validate Cloudflare Tunnel Token
+# Validate Cloudflare Tunnel Token if running in tunnel mode
 cf_token="${CLOUDFLARE_TUNNEL_TOKEN:-}"
-if [[ -z "${cf_token}" ]] || [[ "${cf_token}" == "CHANGE_ME" ]]; then
-    log_error "CLOUDFLARE_TUNNEL_TOKEN is unconfigured or set to placeholder in .env!"
-    log_error "Please set a valid Cloudflare Tunnel Token before deploying."
-    exit 1
+if [[ "${ingress_mode,,}" == "tunnel" ]]; then
+    if [[ -z "${cf_token}" ]] || [[ "${cf_token}" == "CHANGE_ME" ]]; then
+        log_error "CLOUDFLARE_TUNNEL_TOKEN is unconfigured or set to placeholder in .env!"
+        log_error "Please set a valid Cloudflare Tunnel Token before deploying in tunnel mode."
+        exit 1
+    fi
+    log_success "Cloudflare Tunnel Token validated"
+else
+    log_info "Ingress mode is [${ingress_mode,,}] — Skipping Cloudflare Tunnel Token validation"
 fi
-log_success "Cloudflare Tunnel Token validated"
 
 # Idempotently create external Docker bridge networks
 ensure_network() {
@@ -140,7 +144,7 @@ if [[ -f "${PROJECT_ROOT}/docker/platform/compose.monitoring.yaml" ]]; then
     log_info "Added Compose Overlay: compose.monitoring.yaml"
 fi
 
-if [[ -f "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml" ]]; then
+if [[ "${ingress_mode,,}" == "tunnel" ]] && [[ -f "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml" ]]; then
     COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml")
     log_info "Added Compose Overlay: compose.tunnel.yaml"
 fi
@@ -157,7 +161,6 @@ fi
 expected_containers=(
     "docker-socket-proxy"
     "traefik"
-    "cloudflared"
     "prometheus"
     "grafana"
     "node-exporter"
@@ -165,6 +168,10 @@ expected_containers=(
     "dozzle"
     "backup-worker"
 )
+
+if [[ "${ingress_mode,,}" == "tunnel" ]]; then
+    expected_containers+=("cloudflared")
+fi
 
 # Pre-deployment conflict cleanup: Remove any old/conflicting container names
 log_info "Clearing lingering container name conflicts..."
