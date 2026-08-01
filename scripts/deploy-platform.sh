@@ -149,6 +149,11 @@ if [[ "${ingress_mode,,}" == "tunnel" ]] && [[ -f "${PROJECT_ROOT}/docker/platfo
     log_info "Added Compose Overlay: compose.tunnel.yaml"
 fi
 
+if [[ "${ingress_mode,,}" == "public" ]] && [[ -f "${PROJECT_ROOT}/docker/platform/compose.public.yaml" ]]; then
+    COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.public.yaml")
+    log_info "Added Compose Overlay: compose.public.yaml"
+fi
+
 if [[ -f "${PROJECT_ROOT}/docker/platform/compose.backup.yaml" ]]; then
     COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.backup.yaml")
     log_info "Added Compose Overlay: compose.backup.yaml"

@@ -1,0 +1,21 @@
+# ==============================================================================
+# Server Bootstrap Framework — Layer 2 Direct Public IP Ingress Overlay
+# ==============================================================================
+#
+# Description:
+#   Compose overlay specification for Direct Public IP Ingress Mode.
+#   Exposes host ports 80 and 443 to Traefik v3 for Let's Encrypt TLS ACME challenges.
+#   Activated when INGRESS_MODE=public in .env.
+#
+# ==============================================================================
+
+name: platform
+
+services:
+  # ----------------------------------------------------------------------------
+  # Traefik v3 — Public Host Port Binding Overlay
+  # ----------------------------------------------------------------------------
+  traefik:
+    ports:
+      - "${TRAEFIK_HTTP_PORT:-80}:80"
+      - "${TRAEFIK_HTTPS_PORT:-443}:443"
