@@ -1,0 +1,171 @@
+# ==============================================================================
+# Server Bootstrap Framework — Application + Database Compose Template
+# ==============================================================================
+#
+# Description:
+#   Production-ready Compose template for a Layer 3 web application with an
+#   isolated database backend (PostgreSQL default, with MariaDB switch guide).
+#
+# Network Architecture & Isolation Contract:
+#   1. Application Container: Connected to 'proxy-net' (Traefik ingress)
+#      AND 'backend-net' (Database communication).
+#   2. Database Container: Connected STRICTLY to 'backend-net'.
+#      CRITICAL SECURITY RULE: Database container MUST NEVER join 'proxy-net'!
+#   3. NO host ports exposed (ports: section is strictly forbidden).
+#
+# How to switch Database Engine to MariaDB:
+#   To use MariaDB instead of PostgreSQL:
+#   1. Replace the 'db' service image with: image: mariadb:11.4
+#   2. Replace environment variables with:
+#        - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-CHANGE_ME}
+#        - MARIADB_DATABASE=${DB_NAME:-appdb}
+#        - MARIADB_USER=${DB_USER:-appuser}
+#        - MARIADB_PASSWORD=${DB_PASSWORD:-CHANGE_ME}
+#   3. Update healthcheck test to: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u root -p$${MARIADB_ROOT_PASSWORD} || exit 1"]
+#   4. Update volume mount target to: ../../../data/app-db:/var/lib/mysql:rw
+#
+# Usage:
+#   1. Copy template: cp docker/apps/template/compose.app-with-db.yaml docker/apps/<app-name>/compose.yaml
+#   2. Deploy via Makefile: make app-up APP=<app-name>
+#
+# ==============================================================================
+
+name: app-with-db
+
+networks:
+  # Ingress network connecting Traefik reverse proxy to frontend application
+  proxy-net:
+    external: true
+    name: proxy-net
+  # Isolated backend network for application-to-database communication
+  backend-net:
+    external: true
+    name: backend-net
+
+volumes:
+  # Named volume placeholder if persistent data directory is not bind-mounted
+  app-db-data:
+
+services:
+  # ----------------------------------------------------------------------------
+  # Web Application Container (Frontend / API Service)
+  # ----------------------------------------------------------------------------
+  app:
+    image: nginx:1.27.0-alpine
+    container_name: app-frontend
+    restart: unless-stopped
+
+    # Security Hardening Baseline
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    tmpfs:
+      - /tmp:exec,mode=1777
+      - /var/cache/nginx
+      - /var/run
+
+    environment:
+      - NODE_ENV=production
+      - TZ=${TZ:-Asia/Jakarta}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-appdb}
+      - DB_USER=${DB_USER:-appuser}
+      - DB_PASSWORD=${DB_PASSWORD:-CHANGE_ME}
+
+    # Application connects to both proxy-net (ingress) and backend-net (database)
+    networks:
+      - proxy-net
+      - backend-net
+
+    # Wait for database container to be healthy before starting web application
+    depends_on:
+      db:
+        condition: service_healthy
+
+    # Container Runtime Health Check Assertion
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 80 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+    # Resource Allocation Limits & Reservations
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
+
+    # Docker Container Logging Engine & Rotation
+    logging:
+      driver: json-file
+      options:
+        max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+        max-file: "${DOCKER_LOG_MAX_FILE:-3}"
+
+    # Traefik v3 Ingress Service Discovery & Middleware Labels
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app-frontend.rule=Host(`${APP_SUBDOMAIN:-myapp}.${DOMAIN:-example.com}`)"
+      - "traefik.http.routers.app-frontend.entrypoints=web"
+      - "traefik.http.services.app-frontend.loadbalancer.server.port=80"
+      - "traefik.http.routers.app-frontend.middlewares=security-headers@file,rate-limit@file"
+
+  # ----------------------------------------------------------------------------
+  # Database Container (PostgreSQL Engine Default)
+  # ----------------------------------------------------------------------------
+  db:
+    image: postgres:16.3-alpine
+    container_name: app-db
+    restart: unless-stopped
+
+    # Security Hardening Baseline
+    security_opt:
+      - no-new-privileges:true
+
+    environment:
+      - POSTGRES_DB=${DB_NAME:-appdb}
+      - POSTGRES_USER=${DB_USER:-appuser}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-CHANGE_ME}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+
+    # Persistent Storage Binding
+    volumes:
+      - ../../../data/app-db:/var/lib/postgresql/data:rw
+
+    # CRITICAL SECURITY REQUIREMENT: Database MUST ONLY join backend-net
+    networks:
+      - backend-net
+
+    # PostgreSQL Database Native Readiness Check
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-appuser} -d ${DB_NAME:-appdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    # Database Resource Allocation Limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.00'
+          memory: 512M
+        reservations:
+          cpus: '0.10'
+          memory: 128M
+
+    # Docker Container Logging Engine & Rotation
+    logging:
+      driver: json-file
+      options:
+        max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+        max-file: "${DOCKER_LOG_MAX_FILE:-3}"

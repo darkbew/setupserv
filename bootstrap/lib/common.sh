@@ -297,6 +297,12 @@ load_env() {
         # Skip empty keys
         [[ -z "${key}" ]] && continue
 
+        # Validate key name format (must be valid POSIX variable identifier)
+        if [[ ! "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            log_warn "Ignoring invalid environment variable key in ${env_file}: ${key}"
+            continue
+        fi
+
         export "${key}=${value}"
     done < "${env_file}"
 
@@ -595,7 +601,7 @@ install_package() {
     fi
 
     log_info "Installing package: ${pkg}..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${pkg}" > /dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${pkg}" > /dev/null
     log_success "Installed package: ${pkg}"
 }
 

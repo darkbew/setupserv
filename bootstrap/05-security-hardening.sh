@@ -38,6 +38,13 @@ configure_ssh_hardening() {
     local deploy_user="${DEPLOY_USER:-${OPERATIONAL_USER:-deploy}}"
     local password_auth="${SSH_PASSWORD_AUTH:-yes}"
     local max_auth_tries="${SSH_MAX_AUTH_TRIES:-3}"
+    local tailscale_ssh="${TAILSCALE_SSH:-false}"
+    local allow_tcp_forwarding="no"
+
+    # Tailscale SSH requires TCP forwarding to function
+    if [[ "${tailscale_ssh,,}" =~ ^(true|yes|1)$ ]]; then
+        allow_tcp_forwarding="yes"
+    fi
 
     log_info "Configuring OpenSSH hardening baseline..."
 
@@ -75,7 +82,7 @@ LoginGraceTime 30
 # Feature Restrictions
 X11Forwarding no
 AllowAgentForwarding no
-AllowTcpForwarding no
+AllowTcpForwarding ${allow_tcp_forwarding}
 PermitTunnel no
 PermitUserEnvironment no
 

@@ -196,6 +196,7 @@ run_step() {
     local total_steps="$2"
     local step_name="$3"
     local script_file="$4"
+    local step_file_code="${5:-${script_file:0:2}}"
 
     local script_path="${BOOTSTRAP_DIR}/${script_file}"
 
@@ -218,7 +219,7 @@ run_step() {
     else
         log_error "${step_name} — FAILED"
         log_error "Bootstrap aborted at step ${step_number}."
-        log_error "Fix the issue and re-run: sudo bash bootstrap/install.sh --start-from ${step_file_code:-${script_file:0:2}}"
+        log_error "Fix the issue and re-run: sudo bash bootstrap/install.sh --start-from ${step_file_code}"
         log_error "Log file: ${LOG_FILE}"
         exit 1
     fi
@@ -327,15 +328,13 @@ main() {
         # Filter for single step execution
         if [[ -n "${SINGLE_STEP}" ]]; then
             if [[ "${code}" == "${SINGLE_STEP}" ]]; then
-                step_file_code="${code}"
-                run_step "${current}" "${total}" "${name}" "${script}"
+                run_step "${current}" "${total}" "${name}" "${script}" "${code}"
             fi
             continue
         fi
 
         if [[ "${should_run}" == "true" ]]; then
-            step_file_code="${code}"
-            run_step "${current}" "${total}" "${name}" "${script}"
+            run_step "${current}" "${total}" "${name}" "${script}" "${code}"
         fi
     done
 

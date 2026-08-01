@@ -1,0 +1,101 @@
+# ==============================================================================
+# Server Bootstrap Framework — Single Application Compose Template
+# ==============================================================================
+#
+# Description:
+#   Production-ready Compose template for a standalone Layer 3 application.
+#   Designed exclusively for Cloudflare Tunnel Ingress via Traefik v3.
+#
+# Architecture & Security Rules:
+#   1. NO host ports exposed (ports: section is strictly forbidden).
+#   2. All external web traffic enters through Traefik over 'proxy-net'.
+#   3. Container is hardened with read_only rootfs, cap_drop, and resource limits.
+#
+# Usage:
+#   1. Copy template: cp -r docker/apps/template/compose.app.yaml docker/apps/<app-name>/compose.yaml
+#   2. Adjust environment variables (APP_SUBDOMAIN, APP_PORT, etc.)
+#   3. Deploy via Makefile: make app-up APP=<app-name>
+#
+# ==============================================================================
+
+name: app-single
+
+networks:
+  # External bridge network connecting Traefik reverse proxy to frontend applications
+  proxy-net:
+    external: true
+    name: proxy-net
+
+services:
+  # ----------------------------------------------------------------------------
+  # Generic Application Container
+  # ----------------------------------------------------------------------------
+  app:
+    # Pinned image tag policy (NEVER use :latest in production)
+    image: nginx:1.27.0-alpine
+    container_name: app-single
+    restart: unless-stopped
+
+    # Container Security Hardening Baseline
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # Temporary writeable in-memory filesystems for unprivileged runtime operations
+    tmpfs:
+      - /tmp:exec,mode=1777
+      - /var/cache/nginx
+      - /var/run
+
+    # Environment variables sourced from host root .env
+    environment:
+      - NODE_ENV=production
+      - TZ=${TZ:-Asia/Jakarta}
+
+    # Isolated bridge network attachment
+    networks:
+      - proxy-net
+
+    # Container Runtime Health Check Assertion
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 80 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+    # Resource Allocation Limits & Reservations (< 128MB RAM Target)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+
+    # Docker Container Logging Engine & Rotation
+    logging:
+      driver: json-file
+      options:
+        max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+        max-file: "${DOCKER_LOG_MAX_FILE:-3}"
+
+    # Traefik v3 Ingress Service Discovery & Middleware Labels
+    labels:
+      # Enable Traefik service discovery for this container
+      - "traefik.enable=true"
+
+      # Dynamic Routing Rule: Match HTTP Host header (e.g. app.example.com)
+      - "traefik.http.routers.app-single.rule=Host(`${APP_SUBDOMAIN:-myapp}.${DOMAIN:-example.com}`)"
+
+      # Ingress Entrypoint: Internal HTTP Port 80 (TLS terminated at Cloudflare Edge)
+      - "traefik.http.routers.app-single.entrypoints=web"
+
+      # Internal Listening Port of the Container (Where the application process listens)
+      - "traefik.http.services.app-single.loadbalancer.server.port=80"
+
+      # Enterprise Security Middlewares (Security Headers & Rate Limiting)
+      - "traefik.http.routers.app-single.middlewares=security-headers@file,rate-limit@file"

@@ -39,13 +39,9 @@ else
     log_section() { printf '\n\033[1m=== %s ===\033[0m\n' "$*"; }
 fi
 
-# Load active environment variables into exported subshell context
+# Load active environment variables safely using load_env without command execution risk
 if [[ -f "${PROJECT_ROOT}/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "${PROJECT_ROOT}/.env"
-    set +a
-    log_info "Loaded active configuration: ${PROJECT_ROOT}/.env"
+    load_env "${PROJECT_ROOT}/.env"
 else
     log_warn "No .env file found at ${PROJECT_ROOT}/.env — using default fallbacks"
 fi
