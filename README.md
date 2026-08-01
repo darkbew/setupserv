@@ -200,6 +200,39 @@ Detail tanggung jawab, output, dan *dependencies* dari setiap file proyek:
 
 ---
 
+## 6.5. Konfigurasi Secrets & Remote Backup (Rclone / GDrive)
+
+Platform menggunakan direktori `secrets/` untuk menyimpan kunci rahasia dan konfigurasi kredensial eksternal yang di-mount secara aman (read-only) ke dalam kontainer backup worker (`compose.backup.yaml`).
+
+### Hak Akses & Pengamanan Direktori
+- **Direktori:** `secrets/` (berada di root proyek).
+- **Hak Akses:** `chmod 700 secrets/` (hanya dapat diakses oleh owner).
+- **Git Isolation:** Seluruh isi direktori `secrets/` di-exclude oleh `.gitignore` (`secrets/*` kecuali `!secrets/.gitkeep`) untuk mencegah kebocoran kredensial ke repositori.
+
+### Isi Direktori `secrets/`
+1. `secrets/rclone.conf` *(Opsional)*: File konfigurasi Rclone kustom untuk provider remote backup (S3, Backblaze B2, Google Drive).
+2. `secrets/gdrive-service-account.json`: Kunci Service Account Google Cloud Platform berformat JSON untuk otentikasi backup otomatis ke Google Drive.
+
+### Format File Konfigurasi Rclone (`secrets/rclone.conf`)
+Jika menggunakan Rclone dengan Service Account Google Drive, buat file `secrets/rclone.conf`:
+
+```ini
+[gdrive]
+type = drive
+scope = drive
+service_account_file = /secrets/gdrive-service-account.json
+```
+
+### Langkah Panduan Setup Google Drive Service Account
+1. Buka [Google Cloud Console](https://console.cloud.google.com/) dan buat proyek baru.
+2. Aktifkan **Google Drive API** pada proyek tersebut.
+3. Buka **IAM & Admin > Service Accounts**, lalu klik **Create Service Account**.
+4. Buat kunci baru (*Create Key*) berformat **JSON**, lalu simpan file tersebut sebagai `secrets/gdrive-service-account.json`.
+5. Share folder Google Drive target ke alamat email Service Account (berakhiran `@...iam.gserviceaccount.com`) dengan permission **Editor**.
+6. Pastikan file terhubung di `.env`: `BACKUP_GDRIVE_SA_FILE=secrets/gdrive-service-account.json` dan `BACKUP_REMOTE_NAME=gdrive`.
+
+---
+
 ## 7. Installation
 
 Ikuti langkah-langkah berikut untuk memulai penggunaan **Server Bootstrap Framework** pada server Ubuntu baru:

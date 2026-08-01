@@ -22,6 +22,8 @@
 #
 # ==============================================================================
 
+set -Eeuo pipefail
+
 # === Environment Setup ===
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
@@ -36,6 +38,8 @@ source "${SCRIPT_DIR}/lib/common.sh"
 # Configure OpenSSH Hardening (Phase 1) with sshd syntax pre-validation
 configure_ssh_hardening() {
     local deploy_user="${DEPLOY_USER:-${OPERATIONAL_USER:-deploy}}"
+    local ssh_port="${SSH_PORT:-22}"
+    local permit_root_login="${PERMIT_ROOT_LOGIN:-no}"
     local password_auth="${SSH_PASSWORD_AUTH:-yes}"
     local max_auth_tries="${SSH_MAX_AUTH_TRIES:-3}"
     local tailscale_ssh="${TAILSCALE_SSH:-false}"
@@ -46,7 +50,7 @@ configure_ssh_hardening() {
         allow_tcp_forwarding="yes"
     fi
 
-    log_info "Configuring OpenSSH hardening baseline..."
+    log_info "Configuring OpenSSH hardening baseline (Port: ${ssh_port})..."
 
     # Verify deploy user exists before locking AllowUsers
     if ! id "${deploy_user}" &>/dev/null; then
@@ -67,8 +71,11 @@ configure_ssh_hardening() {
 # Managed by bootstrap/05-security-hardening.sh — Do not edit manually.
 # ==============================================================================
 
+# Network & Port Configuration
+Port ${ssh_port}
+
 # Authentication & Access Control
-PermitRootLogin no
+PermitRootLogin ${permit_root_login}
 PasswordAuthentication ${password_auth}
 PubkeyAuthentication yes
 MaxAuthTries ${max_auth_tries}
@@ -109,6 +116,13 @@ SSH_EOF
 
 # Configure UFW Firewall with default deny policy and private/Tailscale openings
 configure_ufw_firewall() {
+    local enable_ufw="${ENABLE_UFW:-yes}"
+
+    if [[ "${enable_ufw,,}" =~ ^(no|false|0)$ ]]; then
+        log_info "UFW firewall configuration skipped (ENABLE_UFW=no)"
+        return 0
+    fi
+
     log_info "Configuring UFW Firewall baseline..."
 
     if ! check_dependency "ufw"; then
@@ -125,7 +139,8 @@ configure_ufw_firewall() {
     ufw default deny incoming > /dev/null 2>&1 || true
     ufw default allow outgoing > /dev/null 2>&1 || true
 
-    # Parse allowed SSH subnets
+    # Parse allowed SSH subnets & port
+    local ssh_port="${SSH_PORT:-22}"
     local ssh_subnets=()
     if [[ -n "${SSH_ALLOWED_SUBNETS:-}" ]]; then
         read -r -a ssh_subnets <<< "${SSH_ALLOWED_SUBNETS}"
@@ -135,7 +150,7 @@ configure_ufw_firewall() {
 
     local subnet
     for subnet in "${ssh_subnets[@]}"; do
-        ufw allow from "${subnet}" to any port 22 proto tcp comment "SSH from ${subnet}" > /dev/null 2>&1 || true
+        ufw allow from "${subnet}" to any port "${ssh_port}" proto tcp comment "SSH from ${subnet}" > /dev/null 2>&1 || true
     done
 
     # Allow Tailscale WireGuard Direct P2P Port (UDP 41641 default)
@@ -144,11 +159,19 @@ configure_ufw_firewall() {
 
     # Enable firewall non-interactively
     ufw --force enable > /dev/null 2>&1
-    log_success "UFW Firewall active: Deny incoming, SSH allowed from Private/Tailscale subnets"
+    log_success "UFW Firewall active: Deny incoming, SSH port ${ssh_port} allowed from Private/Tailscale subnets"
 }
 
 # Configure Fail2ban SSH brute-force jail
 configure_fail2ban() {
+    local enable_fail2ban="${ENABLE_FAIL2BAN:-yes}"
+
+    if [[ "${enable_fail2ban,,}" =~ ^(no|false|0)$ ]]; then
+        log_info "Fail2ban configuration skipped (ENABLE_FAIL2BAN=no)"
+        return 0
+    fi
+
+    local ssh_port="${SSH_PORT:-22}"
     local maxretry="${FAIL2BAN_MAXRETRY:-3}"
     local bantime="${FAIL2BAN_BANTIME:-3600}"
     local findtime="${FAIL2BAN_FINDTIME:-600}"
@@ -172,7 +195,7 @@ configure_fail2ban() {
 
 [sshd]
 enabled = true
-port = ssh
+port = ${ssh_port}
 maxretry = ${maxretry}
 bantime = ${bantime}
 findtime = ${findtime}
@@ -184,7 +207,7 @@ F2B_EOF
 
     service_enable "fail2ban"
     service_restart "fail2ban"
-    log_success "Fail2ban jail active (SSH ban: ${bantime}s, maxretries: ${maxretry})"
+    log_success "Fail2ban jail active (SSH port ${ssh_port}, ban: ${bantime}s, maxretries: ${maxretry})"
 }
 
 # Configure Kernel Sysctl parameters for Network, Memory, and File Descriptors

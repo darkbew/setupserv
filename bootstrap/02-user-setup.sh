@@ -20,6 +20,8 @@
 #
 # ==============================================================================
 
+set -Eeuo pipefail
+
 # === Environment Setup ===
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
@@ -88,10 +90,10 @@ configure_sudoers() {
 # Server Bootstrap Framework — Sudoers Configuration
 # ==============================================================================
 # Managed by bootstrap/02-user-setup.sh — Do not edit manually.
-# Passwordless sudo for deploy user (required for CI/CD automation & DevOps).
+# Passwordless sudo for specific operational commands (Least Privilege Principle).
 # ==============================================================================
 
-${deploy_user} ALL=(ALL:ALL) NOPASSWD: ALL
+${deploy_user} ALL=(ALL:ALL) NOPASSWD: /usr/bin/docker, /usr/bin/systemctl, /usr/sbin/ufw, /usr/bin/apt-get, /usr/sbin/visudo, /usr/sbin/useradd, /usr/sbin/usermod, /usr/bin/chage, /bin/cp, /bin/mv, /bin/mkdir, /bin/chmod, /bin/chown, /usr/bin/cp, /usr/bin/mv, /usr/bin/mkdir, /usr/bin/chmod, /usr/bin/chown
 SUDOERS_EOF
 )
 

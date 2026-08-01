@@ -104,7 +104,7 @@ services:
       - "traefik.http.routers.grafana.rule=Host(`${GRAFANA_SUBDOMAIN:-monitor}.${DOMAIN:-example.com}`)"
       - "traefik.http.routers.grafana.entrypoints=web"
       - "traefik.http.services.grafana.loadbalancer.server.port=3000"
-      - "traefik.http.routers.grafana.middlewares=security-headers@file"
+      - "traefik.http.routers.grafana.middlewares=traefik-auth@docker,security-headers@file"
 
   # ----------------------------------------------------------------------------
   # Node Exporter — Host System Metrics Exporter

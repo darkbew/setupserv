@@ -53,6 +53,10 @@ if [[ -f "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml" ]]; then
     COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml")
 fi
 
+if [[ -f "${PROJECT_ROOT}/docker/platform/compose.backup.yaml" ]]; then
+    COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.backup.yaml")
+fi
+
 if [[ -f "${PROJECT_ROOT}/.env" ]]; then
     COMPOSE_ARGS=("--env-file" "${PROJECT_ROOT}/.env" "${COMPOSE_ARGS[@]}")
 fi
@@ -70,6 +74,7 @@ platform_containers=(
     "node-exporter"
     "uptime-kuma"
     "dozzle"
+    "backup-worker"
 )
 
 for cname in "${platform_containers[@]}"; do

@@ -78,7 +78,7 @@ readonly CONFIG_METADATA=(
     "ADMIN_EMAIL|7_traefik|email|Admin Email|Email for Let's Encrypt SSL notifications|admin@example.com|validate_optional|INSTALL_TRAEFIK=yes|INSTALL_TRAEFIK=yes|false"
     "SOCKET_PROXY_IMAGE_TAG|7_traefik|text|Socket Proxy Image Tag|Image tag for tecnativa/docker-socket-proxy|0.3.0|validate_optional|INSTALL_TRAEFIK=yes|INSTALL_TRAEFIK=yes|false"
     "TRAEFIK_DASHBOARD_USER|7_traefik|username|Traefik Dashboard User|Traefik admin user|admin|validate_username|INSTALL_TRAEFIK=yes|INSTALL_TRAEFIK=yes|false"
-    "TRAEFIK_DASHBOARD_PASSWORD|7_traefik|password|Traefik Dashboard Password|Traefik admin password (min 12 chars)|CHANGE_ME|validate_password|INSTALL_TRAEFIK=yes|INSTALL_TRAEFIK=yes|true"
+    "TRAEFIK_DASHBOARD_PASSWORD|7_traefik|password|Traefik Dashboard Password|Internal password converted to TRAEFIK_DASHBOARD_BASIC_AUTH htpasswd hash|CHANGE_ME|validate_password|INSTALL_TRAEFIK=yes|INSTALL_TRAEFIK=yes|true"
 
     # --- Section 8: Cloudflare Tunnel ---
     "INSTALL_CLOUDFLARE_TUNNEL|8_cloudflare|boolean|Install Cloudflare Tunnel?|Cloudflare Zero Trust tunnel agent|no|validate_boolean|always|always|false"

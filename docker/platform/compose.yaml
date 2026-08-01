@@ -89,12 +89,18 @@ services:
       - /tmp
     command:
       - "--configFile=/etc/traefik/traefik.yaml"
+    ports:
+      - "${TRAEFIK_HTTP_PORT:-}:80"
+      - "${TRAEFIK_HTTPS_PORT:-}:443"
     environment:
       - DOMAIN=${DOMAIN:-example.com}
       - TRAEFIK_LOG_LEVEL=${TRAEFIK_LOG_LEVEL:-INFO}
+      - TRAEFIK_INGRESS_MODE=${INGRESS_MODE:-tunnel}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-${ADMIN_EMAIL:-admin@example.com}}
     volumes:
       - ../../configs/traefik/traefik.yaml:/etc/traefik/traefik.yaml:ro
       - ../../configs/traefik/dynamic/:/etc/traefik/dynamic/:ro
+      - ../../data/traefik/acme.json:/data/acme.json
     networks:
       - proxy-net
       - monitoring-net
@@ -118,7 +124,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.${DOMAIN:-example.com}`)"
-      - "traefik.http.routers.traefik-dashboard.entrypoints=web"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=${APP_ENTRYPOINT:-web}"
       - "traefik.http.routers.traefik-dashboard.service=api@internal"
       - "traefik.http.routers.traefik-dashboard.middlewares=traefik-auth@docker,security-headers@file"
-      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_BASIC_AUTH:-admin:$$apr1$$8.68fL..$$3r9K9yE4M7a/qO6/Z1A.0}"
+      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_BASIC_AUTH}"

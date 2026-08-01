@@ -60,6 +60,17 @@ mkdir -p "${PROJECT_ROOT}/data/prometheus/data"
 mkdir -p "${PROJECT_ROOT}/data/grafana/data"
 mkdir -p "${PROJECT_ROOT}/data/uptime-kuma/data"
 mkdir -p "${PROJECT_ROOT}/logs/platform"
+mkdir -p "${PROJECT_ROOT}/secrets"
+chmod 700 "${PROJECT_ROOT}/secrets"
+mkdir -p "${PROJECT_ROOT}/data/traefik"
+if [[ ! -f "${PROJECT_ROOT}/data/traefik/acme.json" ]]; then
+    touch "${PROJECT_ROOT}/data/traefik/acme.json"
+    chmod 600 "${PROJECT_ROOT}/data/traefik/acme.json"
+    log_info "Initialized data/traefik/acme.json with 600 permissions"
+fi
+
+local ingress_mode="${INGRESS_MODE:-tunnel}"
+log_info "Ingress Architecture Mode: [${ingress_mode,,}]"
 
 # Enforce correct container ownership on data directories to prevent permission errors
 if command -v chown >/dev/null 2>&1; then
@@ -134,6 +145,11 @@ if [[ -f "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml" ]]; then
     log_info "Added Compose Overlay: compose.tunnel.yaml"
 fi
 
+if [[ -f "${PROJECT_ROOT}/docker/platform/compose.backup.yaml" ]]; then
+    COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.backup.yaml")
+    log_info "Added Compose Overlay: compose.backup.yaml"
+fi
+
 if [[ -f "${PROJECT_ROOT}/.env" ]]; then
     COMPOSE_ARGS=("--env-file" "${PROJECT_ROOT}/.env" "${COMPOSE_ARGS[@]}")
 fi
@@ -147,6 +163,7 @@ expected_containers=(
     "node-exporter"
     "uptime-kuma"
     "dozzle"
+    "backup-worker"
 )
 
 # Pre-deployment conflict cleanup: Remove any old/conflicting container names

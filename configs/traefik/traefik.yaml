@@ -49,6 +49,22 @@ entryPoints:
   web:
     address: ":80"
 
+  # HTTPS Entrypoint — Port 443 (Active in MODE=public)
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+
+# Certificates Resolvers Configuration (Active when MODE=public)
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+      storage: "/data/acme.json"
+      httpChallenge:
+        entryPoint: web
+
 # Dynamic Configuration Providers
 providers:
   # Docker Socket Proxy Provider (Communicates strictly over TCP to socket proxy)

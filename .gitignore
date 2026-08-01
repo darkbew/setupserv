@@ -117,4 +117,5 @@ loki/
 # ==========================
 # Secrets
 # ==========================
-secrets/
+secrets/*
+!secrets/.gitkeep

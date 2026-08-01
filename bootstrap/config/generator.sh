@@ -50,22 +50,31 @@ validate_generator_requirements() {
     return 0
 }
 
-# Compute dynamic COMPOSE_PROFILES value based on enabled stacks
-compute_compose_profiles() {
-    local profiles=("production")
+# Compute dynamic TRAEFIK_DASHBOARD_BASIC_AUTH htpasswd hash from user password
+compute_traefik_basic_auth() {
+    local user="${CONFIG_VALUES[TRAEFIK_DASHBOARD_USER]:-admin}"
+    local pass="${CONFIG_VALUES[TRAEFIK_DASHBOARD_PASSWORD]:-}"
 
-    local mon="${CONFIG_VALUES[INSTALL_MONITORING]:-no}"
-    if [[ "${mon,,}" =~ ^(yes|y|true|1)$ ]]; then
-        profiles+=("monitoring")
+    if [[ -z "${pass}" ]] || [[ "${pass}" == "CHANGE_ME" ]]; then
+        return 0
     fi
 
-    local bak="${CONFIG_VALUES[INSTALL_BACKUP]:-no}"
-    if [[ "${bak,,}" =~ ^(yes|y|true|1)$ ]]; then
-        profiles+=("backup")
+    local raw_auth=""
+    if command -v htpasswd >/dev/null 2>&1; then
+        raw_auth=$(htpasswd -nbB "${user}" "${pass}" 2>/dev/null || true)
+    elif command -v openssl >/dev/null 2>&1; then
+        local hash
+        hash=$(openssl passwd -apr1 "${pass}" 2>/dev/null || true)
+        if [[ -n "${hash}" ]]; then
+            raw_auth="${user}:${hash}"
+        fi
     fi
 
-    local IFS=','
-    echo "${profiles[*]}"
+    if [[ -n "${raw_auth}" ]]; then
+        # Escape $ to $$ for Docker Compose environment variable substitution
+        local escaped_auth="${raw_auth//\$/\$\$}"
+        CONFIG_VALUES["TRAEFIK_DASHBOARD_BASIC_AUTH"]="${escaped_auth}"
+    fi
 }
 
 # Generate .env file from .env.example template
@@ -86,8 +95,8 @@ generate_env_file() {
 
     log_info "Parsing .env.example template..."
 
-    # Pre-compute COMPOSE_PROFILES
-    CONFIG_VALUES["COMPOSE_PROFILES"]="$(compute_compose_profiles)"
+    # Pre-compute dynamic configuration values
+    compute_traefik_basic_auth
 
     local generated_content=""
     local line key val

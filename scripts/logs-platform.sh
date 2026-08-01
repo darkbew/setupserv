@@ -26,8 +26,26 @@ if [[ ! -f "${COMPOSE_BASE}" ]]; then
     exit 1
 fi
 
+COMPOSE_ARGS=("-f" "${COMPOSE_BASE}")
+
+if [[ -f "${PROJECT_ROOT}/docker/platform/compose.monitoring.yaml" ]]; then
+    COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.monitoring.yaml")
+fi
+
+if [[ -f "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml" ]]; then
+    COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.tunnel.yaml")
+fi
+
+if [[ -f "${PROJECT_ROOT}/docker/platform/compose.backup.yaml" ]]; then
+    COMPOSE_ARGS+=("-f" "${PROJECT_ROOT}/docker/platform/compose.backup.yaml")
+fi
+
+if [[ -f "${PROJECT_ROOT}/.env" ]]; then
+    COMPOSE_ARGS=("--env-file" "${PROJECT_ROOT}/.env" "${COMPOSE_ARGS[@]}")
+fi
+
 if [[ $# -gt 0 ]]; then
-    exec docker compose -f "${COMPOSE_BASE}" logs -f "$1"
+    exec docker compose "${COMPOSE_ARGS[@]}" logs -f "$1"
 else
-    exec docker compose -f "${COMPOSE_BASE}" logs -f
+    exec docker compose "${COMPOSE_ARGS[@]}" logs -f
 fi

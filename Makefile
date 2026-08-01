@@ -9,7 +9,7 @@
 #
 # ==============================================================================
 
-.PHONY: help platform platform-down platform-status platform-logs verify clean app-up app-down app-status app-logs
+.PHONY: help platform platform-down platform-restart platform-status platform-logs verify clean ingress-tunnel ingress-public app-up app-down app-status app-logs
 
 # Default target
 .DEFAULT_GOAL := help
@@ -27,11 +27,31 @@ platform: ## Deploy Layer 2 Platform Infrastructure (Traefik & Socket Proxy)
 platform-down: ## Stop Layer 2 Platform Containers
 	@bash scripts/destroy-platform.sh
 
+platform-restart: ## Restart Layer 2 Platform Containers
+	@bash scripts/destroy-platform.sh
+	@bash scripts/deploy-platform.sh
+
 platform-status: ## Display Layer 2 Platform Status Matrix & Health
 	@bash scripts/status-platform.sh
 
 platform-logs: ## Tail Layer 2 Platform Container Logs
 	@bash scripts/logs-platform.sh
+
+ingress-tunnel: ## Switch Ingress Architecture to Cloudflare Tunnel mode (No host ports exposed)
+	@echo "Switching to Cloudflare Tunnel mode..."
+	@sed -i 's/^INGRESS_MODE=.*/INGRESS_MODE=tunnel/' .env 2>/dev/null || true
+	@sed -i 's/^APP_ENTRYPOINT=.*/APP_ENTRYPOINT=web/' .env 2>/dev/null || true
+	@sed -i 's/^TRAEFIK_HTTP_PORT=.*/TRAEFIK_HTTP_PORT=/' .env 2>/dev/null || true
+	@sed -i 's/^TRAEFIK_HTTPS_PORT=.*/TRAEFIK_HTTPS_PORT=/' .env 2>/dev/null || true
+	@$(MAKE) platform-restart
+
+ingress-public: ## Switch Ingress Architecture to Direct Public IP mode (Ports 80+443 + Let's Encrypt)
+	@echo "Switching to Public IP mode..."
+	@sed -i 's/^INGRESS_MODE=.*/INGRESS_MODE=public/' .env 2>/dev/null || true
+	@sed -i 's/^APP_ENTRYPOINT=.*/APP_ENTRYPOINT=websecure/' .env 2>/dev/null || true
+	@sed -i 's/^TRAEFIK_HTTP_PORT=.*/TRAEFIK_HTTP_PORT=80/' .env 2>/dev/null || true
+	@sed -i 's/^TRAEFIK_HTTPS_PORT=.*/TRAEFIK_HTTPS_PORT=443/' .env 2>/dev/null || true
+	@$(MAKE) platform-restart
 
 verify: ## Run Layer 2 Platform Verification Matrix Check
 	@bash scripts/verify-platform.sh

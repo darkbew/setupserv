@@ -30,6 +30,8 @@
 #
 # ==============================================================================
 
+set -Eeuo pipefail
+
 # === Resolve Script Location ===
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOOTSTRAP_DIR="${SCRIPT_DIR}"
