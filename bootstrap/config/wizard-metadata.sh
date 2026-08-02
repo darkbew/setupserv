@@ -75,6 +75,7 @@ readonly CONFIG_METADATA=(
 
     # --- Section 7: Reverse Proxy ---
     "INSTALL_TRAEFIK|7_traefik|boolean|Install Traefik Proxy?|Traefik v3 reverse proxy|yes|validate_boolean|always|always|false"
+    "INGRESS_MODE|7_traefik|text|Ingress Architecture Mode|Ingress mode (tunnel or public)|tunnel|validate_optional|INSTALL_TRAEFIK=yes|INSTALL_TRAEFIK=yes|false"
     "ADMIN_EMAIL|7_traefik|email|Admin Email|Email for Let's Encrypt SSL notifications|admin@example.com|validate_optional|INSTALL_TRAEFIK=yes|INSTALL_TRAEFIK=yes|false"
     "SOCKET_PROXY_IMAGE_TAG|7_traefik|text|Socket Proxy Image Tag|Image tag for tecnativa/docker-socket-proxy|0.3.0|validate_optional|INSTALL_TRAEFIK=yes|INSTALL_TRAEFIK=yes|false"
     "TRAEFIK_DASHBOARD_USER|7_traefik|username|Traefik Dashboard User|Traefik admin user|admin|validate_username|INSTALL_TRAEFIK=yes|INSTALL_TRAEFIK=yes|false"
@@ -83,4 +84,7 @@ readonly CONFIG_METADATA=(
     # --- Section 8: Cloudflare Tunnel ---
     "INSTALL_CLOUDFLARE_TUNNEL|8_cloudflare|boolean|Install Cloudflare Tunnel?|Cloudflare Zero Trust tunnel agent|no|validate_boolean|always|always|false"
     "CLOUDFLARE_TUNNEL_TOKEN|8_cloudflare|secret|Cloudflare Tunnel Token|Cloudflare Zero Trust tunnel token|CHANGE_ME|validate_optional|INSTALL_CLOUDFLARE_TUNNEL=yes|INSTALL_CLOUDFLARE_TUNNEL=yes|true"
+
+    # --- Section 9: Database ---
+    "MARIADB_ROOT_PASSWORD|9_database|password|MariaDB Root Password|Password for MariaDB database root user (min 12 chars)|CHANGE_ME|validate_password|always|always|true"
 )

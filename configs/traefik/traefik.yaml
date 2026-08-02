@@ -60,7 +60,7 @@ entryPoints:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+      email: "${ADMIN_EMAIL:-${LETSENCRYPT_EMAIL:-admin@example.com}}"
       storage: "/data/acme.json"
       httpChallenge:
         entryPoint: web
