@@ -84,7 +84,4 @@ readonly CONFIG_METADATA=(
     # --- Section 8: Cloudflare Tunnel ---
     "INSTALL_CLOUDFLARE_TUNNEL|8_cloudflare|boolean|Install Cloudflare Tunnel?|Cloudflare Zero Trust tunnel agent|no|validate_boolean|always|always|false"
     "CLOUDFLARE_TUNNEL_TOKEN|8_cloudflare|secret|Cloudflare Tunnel Token|Cloudflare Zero Trust tunnel token|CHANGE_ME|validate_optional|INSTALL_CLOUDFLARE_TUNNEL=yes|INSTALL_CLOUDFLARE_TUNNEL=yes|true"
-
-    # --- Section 9: Database ---
-    "MARIADB_ROOT_PASSWORD|9_database|password|MariaDB Root Password|Password for MariaDB database root user (min 12 chars)|CHANGE_ME|validate_password|always|always|true"
 )
