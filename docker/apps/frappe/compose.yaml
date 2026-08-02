@@ -1,17 +1,7 @@
 # ==============================================================================
 # Setupserv Framework — Layer 3 Application: Frappe Framework v15
 # (ERPNext v15 + HRMS v15 + LMS v15 + Dedicated MariaDB & Redis)
-# ==============================================================================
-#
-# Description:
-#   Production-ready Frappe v15 stack with ERPNext, HRMS, and LMS apps.
-#   Includes dedicated MariaDB 11.4 database and Redis Cache/Queue instances.
-#   Routed securely through Traefik v3 over 'proxy-net'.
-#   Database and Redis engines are strictly isolated on 'backend-net'.
-#
-# Usage:
-#   make app-up APP=frappe
-#
+# Adapted from Official frappe_docker Production Architecture
 # ==============================================================================
 
 name: frappe-app
@@ -106,23 +96,26 @@ services:
           memory: 256M
 
   # ----------------------------------------------------------------------------
-  # Frappe Gunicorn Web Server & Static Assets (ERPNext + HRMS + LMS v15)
+  # Configurator (One-shot initialization for common_site_config.json)
   # ----------------------------------------------------------------------------
-  backend:
+  configurator:
     image: frappe/erpnext:${FRAPPE_VERSION:-v15}
-    container_name: frappe-backend
-    restart: unless-stopped
-    environment:
-      - DB_HOST=mariadb
-      - DB_PORT=3306
-      - REDIS_CACHE=redis-cache:6379
-      - REDIS_QUEUE=redis-queue:6379
-      - SOCKETIO_PORT=9000
+    container_name: frappe-configurator
+    restart: on-failure
+    entrypoint:
+      - bash
+      - -c
+      - |
+        ls -la /home/frappe/frappe-bench/sites/common_site_config.json || true
+        bench set-config -g db_host mariadb
+        bench set-config -g db_port 3306
+        bench set-config -g redis_cache redis://redis-cache:6379
+        bench set-config -g redis_queue redis://redis-queue:6379
+        bench set-config -g redis_socketio redis://redis-queue:6379
+        bench set-config -g socketio_port 9000
     volumes:
       - frappe-sites:/home/frappe/frappe-bench/sites:rw
-      - frappe-logs:/home/frappe/frappe-bench/logs:rw
     networks:
-      - proxy-net
       - backend-net
     depends_on:
       mariadb:
@@ -131,11 +124,62 @@ services:
         condition: service_started
       redis-queue:
         condition: service_started
+
+  # ----------------------------------------------------------------------------
+  # Frappe Backend Gunicorn App Server
+  # ----------------------------------------------------------------------------
+  backend:
+    image: frappe/erpnext:${FRAPPE_VERSION:-v15}
+    container_name: frappe-backend
+    restart: unless-stopped
+    volumes:
+      - frappe-sites:/home/frappe/frappe-bench/sites:rw
+      - frappe-logs:/home/frappe/frappe-bench/logs:rw
+    networks:
+      - proxy-net
+      - backend-net
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
           cpus: '1.00'
           memory: 1024M
+
+  # ----------------------------------------------------------------------------
+  # Frappe Frontend Nginx Web Server & Static Assets Proxy (Traefik Target)
+  # ----------------------------------------------------------------------------
+  frontend:
+    image: frappe/erpnext:${FRAPPE_VERSION:-v15}
+    container_name: frappe-frontend
+    restart: unless-stopped
+    command:
+      - nginx
+      - -g
+      - daemon off;
+    environment:
+      - BACKEND_SDK=backend:8000
+      - SOCKETIO_PORT=9000
+      - UPSTREAM_REAL_IP_ADDRESS=127.0.0.1
+      - UPSTREAM_REAL_IP_HEADER=X-Forwarded-For
+      - UPSTREAM_REAL_IP_RECURSIVE=off
+      - FRAPPE_PY=backend:8000
+      - FRAPPE_SOCKETIO=websocket:9000
+    volumes:
+      - frappe-sites:/home/frappe/frappe-bench/sites:ro
+      - frappe-logs:/home/frappe/frappe-bench/logs:ro
+    networks:
+      - proxy-net
+      - backend-net
+    depends_on:
+      - backend
+      - websocket
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frappe.rule=Host(`${FRAPPE_SUBDOMAIN:-erp}.${DOMAIN:-example.com}`)"
@@ -151,11 +195,6 @@ services:
     container_name: frappe-websocket
     restart: unless-stopped
     command: node /home/frappe/frappe-bench/apps/frappe/socketio.js
-    environment:
-      - DB_HOST=mariadb
-      - DB_PORT=3306
-      - REDIS_CACHE=redis-cache:6379
-      - REDIS_QUEUE=redis-queue:6379
     volumes:
       - frappe-sites:/home/frappe/frappe-bench/sites:rw
       - frappe-logs:/home/frappe/frappe-bench/logs:rw
@@ -163,7 +202,8 @@ services:
       - proxy-net
       - backend-net
     depends_on:
-      - backend
+      configurator:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -184,7 +224,8 @@ services:
     networks:
       - backend-net
     depends_on:
-      - backend
+      configurator:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -205,7 +246,8 @@ services:
     networks:
       - backend-net
     depends_on:
-      - backend
+      configurator:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:

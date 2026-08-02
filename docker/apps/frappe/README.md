@@ -1,44 +1,43 @@
 # 🏢 Panduan Instalasi Frappe v15 (ERPNext + HRMS + LMS)
 
-> Panduan ini menjelaskan cara menjalankan **Frappe Framework v15** lengkap dengan
-> **ERPNext**, **HRMS**, dan **LMS** di server setupserv Anda.
+> Panduan ini menjelaskan cara menjalankan **Frappe Framework v15** berbasis arsitektur resmi **`frappe_docker`** yang diadaptasi secara sempurna ke platform setupserv Anda (menggunakan Traefik, `proxy-net`, `backend-net`, dan otomatisasi `configurator`).
 
 ---
 
-## 📦 Komponen Yang Akan Berjalan (7 Kontainer)
+## 📦 Komponen Yang Berjalan (9 Kontainer Terkoordinasi)
 
-| Kontainer | Fungsi |
+| Kontainer | Fungsi / Peran |
 | :--- | :--- |
 | `frappe-mariadb` | Database MariaDB 11.4 khusus Frappe |
 | `frappe-redis-cache` | Redis Cache (mempercepat akses halaman) |
 | `frappe-redis-queue` | Redis Queue (antrian tugas latar belakang) |
-| `frappe-backend` | Server Aplikasi Gunicorn (ERPNext + HRMS + LMS) |
-| `frappe-websocket` | Server Realtime Socket.IO |
-| `frappe-scheduler` | Penjadwal Tugas Otomatis |
-| `frappe-worker-default` | Pekerja Tugas Latar Belakang |
+| `frappe-configurator` | Inisialisasi otomatis `common_site_config.json` (set host DB & Redis) |
+| `frappe-backend` | Server Aplikasi Gunicorn Python (`backend:8000`) |
+| `frappe-frontend` | Nginx Web Server & Static Assets (`frontend:8080` target Traefik) |
+| `frappe-websocket` | Server Realtime Socket.IO (`websocket:9000`) |
+| `frappe-scheduler` | Penjadwal Tugas Otomatis (`bench schedule`) |
+| `frappe-worker-default` | Pekerja Tugas Latar Belakang (`bench worker`) |
 
 ---
 
-## 🚀 Langkah Instalasi (Fresh / Baru)
+## 🚀 Langkah Instalasi & Deployment
 
 ### 1. Jalankan Stack Frappe
 ```bash
 cd /opt/setupserv
 make app-up APP=frappe
 ```
-*(Docker akan otomatis mengunduh semua image yang dibutuhkan)*
 
 ### 2. Buat Site Baru & Install Aplikasi
-Setelah semua kontainer berjalan, masuk ke kontainer backend:
-```bash
-docker exec -it frappe-backend bash
-```
+Setelah `frappe-configurator` selesai dan kontainer berjalan sehat:
 
-Lalu jalankan perintah-perintah berikut di dalam kontainer:
 ```bash
+# Masuk ke kontainer backend
+docker exec -it frappe-backend bash
+
 # Buat site baru (ganti erp.domainanda.com dengan domain Anda)
 bench new-site erp.domainanda.com \
-  --mariadb-root-password "PASSWORD_ROOT_DB_ANDA" \
+  --mariadb-root-password "$MYSQL_ROOT_PASSWORD" \
   --admin-password "PasswordAdmin123!" \
   --no-mariadb-socket
 
@@ -59,41 +58,29 @@ Buka `https://erp.domainanda.com` — selesai! 🎉
 
 ---
 
-## 🔄 Langkah Restore dari Backup Lama
+## 🔄 Langkah Restore dari Backup Lama (HRIS)
 
-Jika Anda memiliki file backup Frappe sebelumnya (dari `bench backup --with-files`):
+If you have a previous Frappe backup (`.sql.gz` and `.tgz` files):
 
-### 1. Upload File Backup ke Server
-Upload 4 file backup ke folder `/tmp/hris-backup/` di server:
-- `*-database.sql.gz`
-- `*-files.tgz`
-- `*-private-files.tgz`
-- `*-site_config_backup.json`
-
-### 2. Jalankan Stack Frappe (jika belum)
-```bash
-make app-up APP=frappe
-```
-
-### 3. Copy File Backup ke Kontainer
+### 1. Salin File Backup ke Kontainer
 ```bash
 docker exec frappe-backend mkdir -p /tmp/backup
 docker cp /tmp/hris-backup/. frappe-backend:/tmp/backup/
 ```
 
-### 4. Buat Site & Restore
+### 2. Restore Site & Migrasi
 ```bash
 docker exec -it frappe-backend bash
 
 # Buat site dengan nama domain sesuai backup
 bench new-site hris.anterinmsi.my.id \
-  --mariadb-root-password "PASSWORD_ROOT_DB_ANDA" \
+  --mariadb-root-password "$MYSQL_ROOT_PASSWORD" \
   --admin-password "PasswordAdminBaru123!" \
   --no-mariadb-socket
 
 # Restore database + files
 bench --site hris.anterinmsi.my.id restore /tmp/backup/*-database.sql.gz \
-  --mariadb-root-password "PASSWORD_ROOT_DB_ANDA" \
+  --mariadb-root-password "$MYSQL_ROOT_PASSWORD" \
   --with-public-files /tmp/backup/*-files.tgz \
   --with-private-files /tmp/backup/*-private-files.tgz
 
@@ -106,10 +93,6 @@ bench use hris.anterinmsi.my.id
 exit
 ```
 
-### 5. Penting: Salin Encryption Key
-Buka file `*-site_config_backup.json` dari backup Anda, cari nilai `"encryption_key"`,
-lalu pastikan nilainya sama di file site config server baru.
-
 ---
 
 ## 🕹️ Perintah Pengelolaan
@@ -117,11 +100,6 @@ lalu pastikan nilainya sama di file site config server baru.
 | Perintah | Fungsi |
 | :--- | :--- |
 | `make app-up APP=frappe` | Menyalakan / redeploy stack Frappe |
-| `make app-status APP=frappe` | Cek status 7 kontainer |
+| `make app-status APP=frappe` | Cek status 9 kontainer Frappe |
 | `make app-logs APP=frappe` | Lihat log semua layanan Frappe |
 | `make app-down APP=frappe` | Matikan Frappe (**data aman** di persistent volume) |
-
-## 💾 Backup Rutin
-```bash
-docker exec -it frappe-backend bench --site erp.domainanda.com backup --with-files
-```
