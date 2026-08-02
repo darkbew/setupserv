@@ -163,6 +163,16 @@ if [[ -f "${PROJECT_ROOT}/.env" ]]; then
     COMPOSE_ARGS=("--env-file" "${PROJECT_ROOT}/.env" "${COMPOSE_ARGS[@]}")
 fi
 
+# Check Offsite Google Drive Backup Configuration Status
+if [[ ! -f "${PROJECT_ROOT}/secrets/rclone.conf" ]] && [[ ! -f "${PROJECT_ROOT}/secrets/gdrive-service-account.json" ]]; then
+    log_warn "Google Drive Offsite Backup is NOT configured yet (secrets/rclone.conf missing)"
+    log_info "Local backups will run daily at 02:00 AM in backups/local/"
+    log_info "To connect Google Drive, run: docker exec -it backup-worker rclone config"
+    log_info "See guide: backups/README.md"
+else
+    log_success "Google Drive Offsite Backup configuration detected"
+fi
+
 expected_containers=(
     "docker-socket-proxy"
     "traefik"
