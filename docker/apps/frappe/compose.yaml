@@ -167,7 +167,7 @@ services:
       - FRAPPE_PY=backend:8000
       - FRAPPE_SOCKETIO=websocket:9000
     volumes:
-      - frappe-sites:/home/frappe/frappe-bench/sites:ro
+      - frappe-sites:/home/frappe/frappe-bench/sites:rw
       - frappe-logs:/home/frappe/frappe-bench/logs:ro
     networks:
       - proxy-net
