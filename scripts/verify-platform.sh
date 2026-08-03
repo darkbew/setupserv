@@ -37,13 +37,15 @@ if [[ -f "${PROJECT_ROOT}/.env" ]]; then
     fi
 fi
 
-# ANSI Formatting
-BOLD=$'\033[1m'
-GREEN=$'\033[0;32m'
-RED=$'\033[0;31m'
-YELLOW=$'\033[1;33m'
-CYAN=$'\033[0;36m'
-NC=$'\033[0m'
+# ANSI Formatting (Fallback if common.sh not sourced)
+if [[ -z "${BOLD+x}" ]]; then
+    BOLD=$'\033[1m'
+    GREEN=$'\033[0;32m'
+    RED=$'\033[0;31m'
+    YELLOW=$'\033[1;33m'
+    CYAN=$'\033[0;36m'
+    NC=$'\033[0m'
+fi
 
 pass_count=0
 fail_count=0
