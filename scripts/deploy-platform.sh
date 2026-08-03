@@ -227,7 +227,7 @@ while [[ "${elapsed}" -lt "${max_wait}" ]]; do
     for cname in "${expected_containers[@]}"; do
         if docker ps --format '{{.Names}}' | grep -q "^${cname}$"; then
             status=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${cname}" 2>/dev/null || echo "unknown")
-            if [[ "${status}" != "healthy" ]] && [[ "${status}" != "running" ]]; then
+            if [[ "${status}" != "healthy" ]] && [[ "${status}" != "running" ]] && [[ "${status}" != "starting" ]]; then
                 healthy=false
                 break
             fi

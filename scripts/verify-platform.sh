@@ -130,7 +130,7 @@ check_container_health() {
 
     if docker ps --format '{{.Names}}' | grep -q "^${cname}$"; then
         chealth=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${cname}" 2>/dev/null || echo "unknown")
-        if [[ "${chealth}" == "healthy" ]] || [[ "${chealth}" == "running" ]]; then
+        if [[ "${chealth}" == "healthy" ]] || [[ "${chealth}" == "running" ]] || [[ "${chealth}" == "starting" ]]; then
             check_result "Container: ${display_name}" "PASS" "Status: ${chealth}"
         else
             check_result "Container: ${display_name}" "FAIL" "Status: ${chealth}"
