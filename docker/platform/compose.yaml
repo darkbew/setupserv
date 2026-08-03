@@ -33,7 +33,7 @@ services:
   # Docker Socket Proxy — Secure API Firewall over /var/run/docker.sock
   # ----------------------------------------------------------------------------
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:${SOCKET_PROXY_IMAGE_TAG:-v0.5.0}
+    image: ghcr.io/tecnativa/docker-socket-proxy:${SOCKET_PROXY_IMAGE_TAG:-v0.5.0}
     container_name: docker-socket-proxy
     restart: unless-stopped
     security_opt:
