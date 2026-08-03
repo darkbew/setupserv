@@ -52,13 +52,6 @@ http:
           - "172.16.0.0/12"
           - "192.168.0.0/16"
 
-    # Traefik Dashboard & Platform Management Basic Auth Middleware
-    traefik-auth:
-      basicAuth:
-        users:
-          - "${TRAEFIK_DASHBOARD_BASIC_AUTH}"
-        removeHeader: true
-
     # Standard Basic Authentication Middleware Template
     basic-auth:
       basicAuth:
