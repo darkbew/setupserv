@@ -24,10 +24,17 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Load active environment variables if available
+# Source framework shared library if available
+if [[ -f "${PROJECT_ROOT}/bootstrap/lib/common.sh" ]]; then
+    # shellcheck source=../bootstrap/lib/common.sh
+    source "${PROJECT_ROOT}/bootstrap/lib/common.sh"
+fi
+
+# Load active environment variables safely using load_env without command execution risk
 if [[ -f "${PROJECT_ROOT}/.env" ]]; then
-    # shellcheck disable=SC1091
-    source "${PROJECT_ROOT}/.env"
+    if command -v load_env >/dev/null 2>&1; then
+        load_env "${PROJECT_ROOT}/.env"
+    fi
 fi
 
 # ANSI Formatting
@@ -96,7 +103,7 @@ for net in "proxy-net" "backend-net" "monitoring-net"; do
 done
 
 # 4. Image Tag Pinning Check (No :latest)
-sp_tag="${SOCKET_PROXY_IMAGE_TAG:-0.3.0}"
+sp_tag="${SOCKET_PROXY_IMAGE_TAG:-v0.5.0}"
 if [[ "${sp_tag}" != "latest" ]] && [[ "${sp_tag}" != ":latest" ]]; then
     check_result "Socket Proxy Tag Pinning" "PASS" "Pinned tag: ${sp_tag}"
 else

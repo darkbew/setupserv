@@ -46,7 +46,7 @@ else
     log_warn "No .env file found at ${PROJECT_ROOT}/.env — using default fallbacks"
 fi
 
-export SOCKET_PROXY_IMAGE_TAG="${SOCKET_PROXY_IMAGE_TAG:-0.3.0}"
+export SOCKET_PROXY_IMAGE_TAG="${SOCKET_PROXY_IMAGE_TAG:-v0.5.0}"
 log_info "Effective Socket Proxy Image Tag: ${SOCKET_PROXY_IMAGE_TAG}"
 
 log_section "Initializing Layer 2 Platform Infrastructure"

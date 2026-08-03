@@ -33,7 +33,7 @@ services:
   # Docker Socket Proxy — Secure API Firewall over /var/run/docker.sock
   # ----------------------------------------------------------------------------
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:${SOCKET_PROXY_IMAGE_TAG:-0.3.0}
+    image: tecnativa/docker-socket-proxy:${SOCKET_PROXY_IMAGE_TAG:-v0.5.0}
     container_name: docker-socket-proxy
     restart: unless-stopped
     security_opt:
@@ -77,7 +77,7 @@ services:
   # Traefik v3 — Internal HTTP Reverse Proxy & Service Discovery Engine
   # ----------------------------------------------------------------------------
   traefik:
-    image: traefik:${TRAEFIK_IMAGE_TAG:-3.4}
+    image: traefik:${TRAEFIK_IMAGE_TAG:-v3.7.10}
     container_name: traefik
     restart: unless-stopped
     read_only: true
@@ -123,5 +123,4 @@ services:
       - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.${DOMAIN:-example.com}`)"
       - "traefik.http.routers.traefik-dashboard.entrypoints=${APP_ENTRYPOINT:-web}"
       - "traefik.http.routers.traefik-dashboard.service=api@internal"
-      - "traefik.http.routers.traefik-dashboard.middlewares=traefik-auth@docker,security-headers@file"
-      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_BASIC_AUTH}"
+      - "traefik.http.routers.traefik-dashboard.middlewares=traefik-auth@file,security-headers@file"
