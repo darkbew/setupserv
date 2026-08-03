@@ -47,7 +47,17 @@ else
 fi
 
 export SOCKET_PROXY_IMAGE_TAG="${SOCKET_PROXY_IMAGE_TAG:-v0.5.0}"
+if [[ "${SOCKET_PROXY_IMAGE_TAG}" != v* ]] && [[ "${SOCKET_PROXY_IMAGE_TAG}" != "latest" ]]; then
+    SOCKET_PROXY_IMAGE_TAG="v${SOCKET_PROXY_IMAGE_TAG}"
+fi
+
+export TRAEFIK_IMAGE_TAG="${TRAEFIK_IMAGE_TAG:-v3.7.10}"
+if [[ "${TRAEFIK_IMAGE_TAG}" != v* ]] && [[ "${TRAEFIK_IMAGE_TAG}" != "latest" ]]; then
+    TRAEFIK_IMAGE_TAG="v${TRAEFIK_IMAGE_TAG}"
+fi
+
 log_info "Effective Socket Proxy Image Tag: ${SOCKET_PROXY_IMAGE_TAG}"
+log_info "Effective Traefik Image Tag:      ${TRAEFIK_IMAGE_TAG}"
 
 log_section "Initializing Layer 2 Platform Infrastructure"
 

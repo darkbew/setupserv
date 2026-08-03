@@ -104,6 +104,9 @@ done
 
 # 4. Image Tag Pinning Check (No :latest)
 sp_tag="${SOCKET_PROXY_IMAGE_TAG:-v0.5.0}"
+if [[ "${sp_tag}" != v* ]] && [[ "${sp_tag}" != "latest" ]]; then
+    sp_tag="v${sp_tag}"
+fi
 if [[ "${sp_tag}" != "latest" ]] && [[ "${sp_tag}" != ":latest" ]]; then
     check_result "Socket Proxy Tag Pinning" "PASS" "Pinned tag: ${sp_tag}"
 else
