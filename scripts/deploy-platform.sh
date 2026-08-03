@@ -198,13 +198,6 @@ if [[ "${ingress_mode,,}" == "tunnel" ]]; then
     expected_containers+=("cloudflared")
 fi
 
-# Pre-deployment conflict cleanup: Remove any old/conflicting container names
-log_info "Clearing lingering container name conflicts..."
-for cname in "${expected_containers[@]}"; do
-    if docker ps -a --format '{{.Names}}' | grep -q "^${cname}$"; then
-        docker rm -f "${cname}" >/dev/null 2>&1 || true
-    fi
-done
 
 # Launch Layer 2 Containers via Docker Compose
 log_info "Deploying Layer 2 platform containers with Docker Compose..."
