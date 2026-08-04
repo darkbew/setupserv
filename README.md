@@ -165,7 +165,7 @@ Framework ini membagi infrastruktur server ke dalam 3 Layer independen dan teris
 ├── backups/                        # Tempat simpan arsip backup lokal & staging restore (git-ignored)
 ├── data/                           # Volume data persistent kontainer (git-ignored)
 ├── logs/                           # Runtime log files (git-ignored)
-└── secrets/                        # Kredensial rahasia & Google Drive Service Account (git-ignored)
+└── secrets/                        # Kredensial rahasia (credentials.txt) & Google Drive Service Account (git-ignored)
 ```
 
 ---
@@ -252,7 +252,20 @@ Platform dapat di-switch antara **dua arsitektur ingress** tanpa mengubah compos
 
 Seluruh file rahasia disimpan di folder `secrets/` (di-ignore oleh git, izin akses `700`):
 
-### Kebutuhan Backup Offsite (Google Drive / Rclone):
+### 🔑 Storage Kredensial Otomatis (`secrets/credentials.txt`):
+Saat mengoperasikan **Interactive Configuration Wizard** (`sudo bash bootstrap/install.sh`), password acak yang di-generate secara otomatis untuk variabel berikut:
+- `MARIADB_ROOT_PASSWORD` (Password root MariaDB)
+- `GRAFANA_ADMIN_PASSWORD` (Password admin Grafana)
+- `BACKUP_ENCRYPTION_KEY` (Kunci enkripsi backup 32 karakter)
+- `TRAEFIK_DASHBOARD_PASSWORD` (Password basic auth Traefik)
+
+akan ditampilkan di layar **SEKALI** dan secara otomatis disimpan di file `secrets/credentials.txt` dengan izin akses `600` (`-rw-------`).
+
+### 🛡️ Autentikasi Dinamis Traefik (`configs/traefik/dynamic/auth.yaml`):
+- `deploy-platform.sh` (`make platform`) secara otomatis membaca kredensial `TRAEFIK_DASHBOARD_BASIC_AUTH` dari `.env`, mengonversi format escaping (`$$` menjadi `$`), memverifikasi format hash (bcrypt `$2y$` / `$2b$` atau SHA-512 `$6$`), dan membuat file `configs/traefik/dynamic/auth.yaml` dengan izin akses `644` (`-rw-r--r--`).
+- Seluruh router internal (`traefik-dashboard`, `grafana`, `kuma-admin`, `dozzle`) menggunakan middleware `traefik-auth@file` dari file provider secara aman.
+
+### ☁️ Kebutuhan Backup Offsite (Google Drive / Rclone):
 1. Buat file `secrets/gdrive-service-account.json` berisi Service Account JSON dari Google Cloud Console.
 2. *(Opsional)* Buat file `secrets/rclone.conf`:
    ```ini

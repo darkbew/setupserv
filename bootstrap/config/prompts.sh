@@ -1,4 +1,4 @@
-      #!/usr/bin/env bash
+#!/usr/bin/env bash
 # ==============================================================================
 # Server Bootstrap Framework — Terminal UI Prompt Helpers & Type Dispatcher
 # ==============================================================================
