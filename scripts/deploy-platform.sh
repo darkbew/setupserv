@@ -112,6 +112,29 @@ if [[ "${missing_cfg}" -gt 0 ]]; then
 fi
 log_success "All required configuration files verified"
 
+# Generate traefik-auth middleware config (auth.yaml) from .env credentials
+# FIX: Traefik file provider cannot expand environment variables, so we must
+# write the literal bcrypt hash into auth.yaml at deploy time.
+# Docker Compose uses $$ to escape $, but file provider needs single $.
+auth_value="${TRAEFIK_DASHBOARD_BASIC_AUTH:-}"
+if [[ -n "${auth_value}" ]] && [[ "${auth_value}" != "CHANGE_ME" ]]; then
+    # Convert $$ (Docker Compose escaping) to $ (literal for file provider)
+    auth_value_expanded="${auth_value//\$\$/\$}"
+    auth_yaml_content="http:
+  middlewares:
+    traefik-auth:
+      basicAuth:
+        users:
+          - \"${auth_value_expanded}\"
+        removeHeader: true
+"
+    write_config "${PROJECT_ROOT}/configs/traefik/dynamic/auth.yaml" "${auth_yaml_content}" "600"
+    log_success "Generated traefik-auth middleware config: configs/traefik/dynamic/auth.yaml"
+else
+    log_warn "TRAEFIK_DASHBOARD_BASIC_AUTH not set — skipping auth.yaml generation"
+    log_warn "Dashboard and monitoring UIs will not have basic auth protection"
+fi
+
 # Validate Cloudflare Tunnel Token if running in tunnel mode
 cf_token="${CLOUDFLARE_TUNNEL_TOKEN:-}"
 if [[ "${ingress_mode,,}" == "tunnel" ]]; then

@@ -104,7 +104,8 @@ services:
       - "traefik.http.routers.grafana.rule=Host(`${GRAFANA_SUBDOMAIN:-monitor}.${DOMAIN:-example.com}`)"
       - "traefik.http.routers.grafana.entrypoints=${APP_ENTRYPOINT:-web}"
       - "traefik.http.services.grafana.loadbalancer.server.port=3000"
-      - "traefik.http.routers.grafana.middlewares=traefik-auth@docker,security-headers@file"
+      # FIX: Use @file provider — traefik-auth is defined in file provider (auth.yaml)
+      - "traefik.http.routers.grafana.middlewares=traefik-auth@file,security-headers@file"
 
   # ----------------------------------------------------------------------------
   # Node Exporter — Host System Metrics Exporter
@@ -184,7 +185,8 @@ services:
       - "traefik.http.routers.kuma-admin.entrypoints=${APP_ENTRYPOINT:-web}"
       - "traefik.http.routers.kuma-admin.service=kuma"
       - "traefik.http.routers.kuma-admin.priority=1"
-      - "traefik.http.routers.kuma-admin.middlewares=traefik-auth@docker,security-headers@file"
+      # FIX: Use @file provider — traefik-auth is defined in file provider (auth.yaml)
+      - "traefik.http.routers.kuma-admin.middlewares=traefik-auth@file,security-headers@file"
 
   # ----------------------------------------------------------------------------
   # Dozzle — Zero-Database Ultra-Lightweight Container Log Viewer
@@ -221,4 +223,5 @@ services:
       - "traefik.http.routers.dozzle.rule=Host(`${DOZZLE_SUBDOMAIN:-logs}.${DOMAIN:-example.com}`)"
       - "traefik.http.routers.dozzle.entrypoints=${APP_ENTRYPOINT:-web}"
       - "traefik.http.services.dozzle.loadbalancer.server.port=8080"
-      - "traefik.http.routers.dozzle.middlewares=traefik-auth@docker,security-headers@file"
+      # FIX: Use @file provider — traefik-auth is defined in file provider (auth.yaml)
+      - "traefik.http.routers.dozzle.middlewares=traefik-auth@file,security-headers@file"

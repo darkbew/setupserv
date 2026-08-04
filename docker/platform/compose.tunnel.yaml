@@ -42,11 +42,12 @@ services:
     networks:
       - proxy-net
     healthcheck:
-      test: ["CMD-SHELL", "cloudflared --version || exit 1"]
-      interval: 10s
-      timeout: 5s
+      # FIX: Test real tunnel connectivity via metrics endpoint instead of just binary existence
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:2000/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 5s
+      start_period: 15s
     deploy:
       resources:
         limits:

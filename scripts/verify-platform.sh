@@ -24,17 +24,18 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Source framework shared library if available
-if [[ -f "${PROJECT_ROOT}/bootstrap/lib/common.sh" ]]; then
-    # shellcheck source=../bootstrap/lib/common.sh
-    source "${PROJECT_ROOT}/bootstrap/lib/common.sh"
+# FIX: common.sh is mandatory — no unsafe fallback to source .env directly
+if [[ ! -f "${PROJECT_ROOT}/bootstrap/lib/common.sh" ]]; then
+    printf '\033[0;31m[ERROR]\033[0m   bootstrap/lib/common.sh not found. Cannot proceed without load_env().\n' >&2
+    printf '\033[0;31m[ERROR]\033[0m   Ensure the repository is cloned completely and common.sh exists.\n' >&2
+    exit 1
 fi
+# shellcheck source=../bootstrap/lib/common.sh
+source "${PROJECT_ROOT}/bootstrap/lib/common.sh"
 
-# Load active environment variables safely using load_env without command execution risk
+# Load active environment variables safely using load_env (no command execution risk)
 if [[ -f "${PROJECT_ROOT}/.env" ]]; then
-    if command -v load_env >/dev/null 2>&1; then
-        load_env "${PROJECT_ROOT}/.env"
-    fi
+    load_env "${PROJECT_ROOT}/.env"
 fi
 
 # ANSI Formatting (Fallback if common.sh not sourced)
