@@ -112,6 +112,7 @@ grafana.db
 # ==========================
 secrets/*
 !secrets/.gitkeep
+secrets/credentials.txt
 
 # ==========================
 # Generated Configs (deploy-time)

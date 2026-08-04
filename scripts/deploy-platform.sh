@@ -121,17 +121,17 @@ if [[ -n "${auth_value}" ]] && [[ "${auth_value}" != "CHANGE_ME" ]]; then
     # Convert $$ (Docker Compose escaping) to $ (literal for file provider)
     auth_value_expanded="${auth_value//\$\$/\$}"
 
-    # Validate bcrypt hash format — Traefik v3 ONLY supports bcrypt ($2y$ or $2b$)
+    # Validate bcrypt or SHA-512 hash format — Traefik v3 supports bcrypt ($2y$, $2b$) and SHA-512 ($6$)
     if [[ "${auth_value_expanded}" == *'$apr1$'* ]]; then
         log_error "TRAEFIK_DASHBOARD_BASIC_AUTH contains an MD5 hash (\$apr1\$) which is NOT supported by Traefik v3."
-        log_error "Please regenerate using bcrypt:"
+        log_error "Please regenerate using bcrypt or SHA-512:"
         log_error "  Install: sudo apt install apache2-utils"
         log_error "  Generate: htpasswd -nB YOUR_USERNAME"
         log_error "  Then update TRAEFIK_DASHBOARD_BASIC_AUTH in .env (escape \$ as \$\$)"
         exit 1
-    elif [[ "${auth_value_expanded}" != *'$2y$'* ]] && [[ "${auth_value_expanded}" != *'$2b$'* ]]; then
-        log_error "TRAEFIK_DASHBOARD_BASIC_AUTH does not contain a valid bcrypt hash (\$2y\$ or \$2b\$)."
-        log_error "Traefik v3 only supports bcrypt. Please regenerate:"
+    elif [[ "${auth_value_expanded}" != *'$2y$'* ]] && [[ "${auth_value_expanded}" != *'$2b$'* ]] && [[ "${auth_value_expanded}" != *'$6$'* ]]; then
+        log_error "TRAEFIK_DASHBOARD_BASIC_AUTH does not contain a valid bcrypt (\$2y\$, \$2b\$) or SHA-512 (\$6\$) hash."
+        log_error "Traefik v3 only supports bcrypt or SHA-512. Please regenerate:"
         log_error "  Install: sudo apt install apache2-utils"
         log_error "  Generate: htpasswd -nB YOUR_USERNAME"
         log_error "  Then update TRAEFIK_DASHBOARD_BASIC_AUTH in .env (escape \$ as \$\$)"

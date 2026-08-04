@@ -50,30 +50,85 @@ validate_generator_requirements() {
     return 0
 }
 
-# Compute dynamic TRAEFIK_DASHBOARD_BASIC_AUTH htpasswd hash from user password
+# Auto-generate missing passwords for any CHANGE_ME or placeholder password variables before generating .env
+auto_generate_missing_passwords() {
+    local secret_vars=(
+        "MARIADB_ROOT_PASSWORD|MariaDB Root Password"
+        "GRAFANA_ADMIN_PASSWORD|Grafana Admin Password"
+        "BACKUP_ENCRYPTION_KEY|Backup Encryption Passphrase"
+        "TRAEFIK_DASHBOARD_PASSWORD|Traefik Dashboard Password"
+    )
+
+    local entry var_name label val gen_pass
+    for entry in "${secret_vars[@]}"; do
+        var_name="${entry%%|*}"
+        label="${entry#*|}"
+        val="${CONFIG_VALUES[${var_name}]:-}"
+
+        if is_placeholder "${val}" || [[ "${val}" == "CHANGE_ME" ]]; then
+            gen_pass=$(generate_random_secret "${var_name}" 16)
+            CONFIG_VALUES["${var_name}"]="${gen_pass}"
+            log_info "Auto-generated random password for ${label}"
+            save_credential_to_file "${var_name}" "${label}" "${gen_pass}"
+        fi
+    done
+}
+
+# Compute dynamic TRAEFIK_DASHBOARD_BASIC_AUTH htpasswd hash from user password using fallback chain
 compute_traefik_basic_auth() {
     local user="${CONFIG_VALUES[TRAEFIK_DASHBOARD_USER]:-admin}"
     local pass="${CONFIG_VALUES[TRAEFIK_DASHBOARD_PASSWORD]:-}"
 
     if [[ -z "${pass}" ]] || [[ "${pass}" == "CHANGE_ME" ]]; then
-        return 0
+        pass=$(generate_random_secret "TRAEFIK_DASHBOARD_PASSWORD" 16)
+        CONFIG_VALUES["TRAEFIK_DASHBOARD_PASSWORD"]="${pass}"
+        log_info "Auto-generated random password for Traefik Dashboard Password"
+        save_credential_to_file "TRAEFIK_DASHBOARD_PASSWORD" "Traefik Dashboard Password" "${pass}"
     fi
 
-    local raw_auth=""
-    if command -v htpasswd >/dev/null 2>&1; then
-        raw_auth=$(htpasswd -nbB "${user}" "${pass}" 2>/dev/null || true)
-    elif command -v openssl >/dev/null 2>&1; then
-        local hash
-        hash=$(openssl passwd -apr1 "${pass}" 2>/dev/null || true)
-        if [[ -n "${hash}" ]]; then
-            raw_auth="${user}:${hash}"
+    local hash=""
+    local format_name=""
+
+    # CARA B: htpasswd from apache2-utils (bcrypt $2y$)
+    if ! command -v htpasswd >/dev/null 2>&1; then
+        if command -v apt-get >/dev/null 2>&1 && [[ "${EUID:-1000}" -eq 0 ]]; then
+            apt-get update -q >/dev/null 2>&1 || true
+            apt-get install -y apache2-utils -q >/dev/null 2>&1 || true
         fi
     fi
 
-    if [[ -n "${raw_auth}" ]]; then
+    if command -v htpasswd >/dev/null 2>&1; then
+        local raw
+        raw=$(htpasswd -nbB "${user}" "${pass}" 2>/dev/null || true)
+        if [[ -n "${raw}" ]]; then
+            hash="${raw#*:}"
+            format_name="bcrypt (\$2y\$)"
+        fi
+    fi
+
+    # CARA A: openssl passwd -6 (SHA-512 $6$)
+    if [[ -z "${hash}" ]] && command -v openssl >/dev/null 2>&1; then
+        hash=$(openssl passwd -6 "${pass}" 2>/dev/null || true)
+        if [[ -n "${hash}" ]]; then
+            format_name="SHA-512 (\$6\$)"
+        fi
+    fi
+
+    # CARA C: python3 bcrypt
+    if [[ -z "${hash}" ]] && command -v python3 >/dev/null 2>&1; then
+        hash=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'${pass}', bcrypt.gensalt()).decode())" 2>/dev/null || true)
+        if [[ -n "${hash}" ]]; then
+            format_name="bcrypt"
+        fi
+    fi
+
+    if [[ -n "${hash}" ]]; then
         # Escape $ to $$ for Docker Compose environment variable substitution
-        local escaped_auth="${raw_auth//\$/\$\$}"
-        CONFIG_VALUES["TRAEFIK_DASHBOARD_BASIC_AUTH"]="${escaped_auth}"
+        local escaped_hash="${hash//\$/\$\$}"
+        CONFIG_VALUES["TRAEFIK_DASHBOARD_BASIC_AUTH"]="${user}:${escaped_hash}"
+        log_success "Generated Traefik basic auth hash (${format_name})"
+    else
+        log_error "Could not generate Traefik basic auth hash"
     fi
 }
 
@@ -95,7 +150,8 @@ generate_env_file() {
 
     log_info "Parsing .env.example template..."
 
-    # Pre-compute dynamic configuration values
+    # Pre-compute dynamic configuration values and auto-generate passwords if needed
+    auto_generate_missing_passwords
     compute_traefik_basic_auth
 
     local generated_content=""

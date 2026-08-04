@@ -31,6 +31,7 @@ readonly CONFIG_METADATA=(
     "DOMAIN|1_general|domain|Primary Domain|FQDN domain name for server services|example.com|validate_domain|always|always|false"
     "DEPLOY_USER|1_general|username|Deploy User|Non-root operational user (cannot be root)|deploy|validate_username|always|always|false"
     "SSH_PORT|1_general|port|SSH Port|SSH daemon listening port|22|validate_port|always|always|false"
+    "MARIADB_ROOT_PASSWORD|1_general|password|MariaDB Root Password|MariaDB database root password|CHANGE_ME|validate_password|always|always|true"
 
     # --- Section 2: Docker ---
     "INSTALL_DOCKER|2_docker|boolean|Install Docker Engine?|Docker CE container runtime|yes|validate_boolean|always|always|false"
