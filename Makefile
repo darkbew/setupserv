@@ -72,10 +72,14 @@ app-up: ## Deploy Layer 3 Application (Usage: make app-up APP=<folder>)
 	@COMPOSE_FILE=""; \
 	if [ -f "docker/apps/$(APP)/compose.yaml" ]; then \
 		COMPOSE_FILE="docker/apps/$(APP)/compose.yaml"; \
-	elif [ -f "docker/apps/$(APP)/compose.yml" ]; then \
+		elif [ -f "docker/apps/$(APP)/compose.yml" ]; then \
 		COMPOSE_FILE="docker/apps/$(APP)/compose.yml"; \
+		elif [ -f "docker/apps/$(APP)/docker-compose.yml" ]; then \
+		COMPOSE_FILE="docker/apps/$(APP)/docker-compose.yml"; \
+		elif [ -f "docker/apps/$(APP)/docker-compose.yaml" ]; then \
+		COMPOSE_FILE="docker/apps/$(APP)/docker-compose.yaml"; \
 	else \
-		printf '\033[0;31m[ERROR]\033[0m Application compose file not found: docker/apps/$(APP)/compose.yaml\n' >&2; \
+		printf '\033[0;31m[ERROR]\033[0m Application compose file not found in docker/apps/$(APP)/ (expected compose.yaml or docker-compose.yml)\n' >&2; \
 		exit 1; \
 	fi; \
 	ENV_OPT=""; \
@@ -94,8 +98,12 @@ app-down: ## Stop Layer 3 Application (Usage: make app-down APP=<folder>)
 		COMPOSE_FILE="docker/apps/$(APP)/compose.yaml"; \
 	elif [ -f "docker/apps/$(APP)/compose.yml" ]; then \
 		COMPOSE_FILE="docker/apps/$(APP)/compose.yml"; \
+	elif [ -f "docker/apps/$(APP)/docker-compose.yml" ]; then \
+		COMPOSE_FILE="docker/apps/$(APP)/docker-compose.yml"; \
+	elif [ -f "docker/apps/$(APP)/docker-compose.yaml" ]; then \
+		COMPOSE_FILE="docker/apps/$(APP)/docker-compose.yaml"; \
 	else \
-		printf '\033[0;31m[ERROR]\033[0m Application compose file not found: docker/apps/$(APP)/compose.yaml\n' >&2; \
+		printf '\033[0;31m[ERROR]\033[0m Application compose file not found in docker/apps/$(APP)/\n' >&2; \
 		exit 1; \
 	fi; \
 	ENV_OPT=""; \
@@ -114,8 +122,12 @@ app-status: ## Display Layer 3 Application Status (Usage: make app-status APP=<f
 		COMPOSE_FILE="docker/apps/$(APP)/compose.yaml"; \
 	elif [ -f "docker/apps/$(APP)/compose.yml" ]; then \
 		COMPOSE_FILE="docker/apps/$(APP)/compose.yml"; \
+	elif [ -f "docker/apps/$(APP)/docker-compose.yml" ]; then \
+		COMPOSE_FILE="docker/apps/$(APP)/docker-compose.yml"; \
+	elif [ -f "docker/apps/$(APP)/docker-compose.yaml" ]; then \
+		COMPOSE_FILE="docker/apps/$(APP)/docker-compose.yaml"; \
 	else \
-		printf '\033[0;31m[ERROR]\033[0m Application compose file not found: docker/apps/$(APP)/compose.yaml\n' >&2; \
+		printf '\033[0;31m[ERROR]\033[0m Application compose file not found in docker/apps/$(APP)/\n' >&2; \
 		exit 1; \
 	fi; \
 	ENV_OPT=""; \
@@ -132,10 +144,14 @@ app-logs: ## Tail Layer 3 Application Container Logs (Usage: make app-logs APP=<
 		COMPOSE_FILE="docker/apps/$(APP)/compose.yaml"; \
 	elif [ -f "docker/apps/$(APP)/compose.yml" ]; then \
 		COMPOSE_FILE="docker/apps/$(APP)/compose.yml"; \
+	elif [ -f "docker/apps/$(APP)/docker-compose.yml" ]; then \
+		COMPOSE_FILE="docker/apps/$(APP)/docker-compose.yml"; \
+	elif [ -f "docker/apps/$(APP)/docker-compose.yaml" ]; then \
+		COMPOSE_FILE="docker/apps/$(APP)/docker-compose.yaml"; \
 	else \
-		printf '\033[0;31m[ERROR]\033[0m Application compose file not found: docker/apps/$(APP)/compose.yaml\n' >&2; \
+		printf '\033[0;31m[ERROR]\033[0m Application compose file not found in docker/apps/$(APP)/\n' >&2; \
 		exit 1; \
 	fi; \
 	ENV_OPT=""; \
 	if [ -f ".env" ]; then ENV_OPT="--env-file .env"; fi; \
-	docker compose $$ENV_OPT -f $$COMPOSE_FILE logs -f
+	docker compose $$ENV_OPT -f $$COMPOSE_FILE logs -f --tail=100
