@@ -120,6 +120,24 @@ auth_value="${TRAEFIK_DASHBOARD_BASIC_AUTH:-}"
 if [[ -n "${auth_value}" ]] && [[ "${auth_value}" != "CHANGE_ME" ]]; then
     # Convert $$ (Docker Compose escaping) to $ (literal for file provider)
     auth_value_expanded="${auth_value//\$\$/\$}"
+
+    # Validate bcrypt hash format — Traefik v3 ONLY supports bcrypt ($2y$ or $2b$)
+    if [[ "${auth_value_expanded}" == *'$apr1$'* ]]; then
+        log_error "TRAEFIK_DASHBOARD_BASIC_AUTH contains an MD5 hash (\$apr1\$) which is NOT supported by Traefik v3."
+        log_error "Please regenerate using bcrypt:"
+        log_error "  Install: sudo apt install apache2-utils"
+        log_error "  Generate: htpasswd -nB YOUR_USERNAME"
+        log_error "  Then update TRAEFIK_DASHBOARD_BASIC_AUTH in .env (escape \$ as \$\$)"
+        exit 1
+    elif [[ "${auth_value_expanded}" != *'$2y$'* ]] && [[ "${auth_value_expanded}" != *'$2b$'* ]]; then
+        log_error "TRAEFIK_DASHBOARD_BASIC_AUTH does not contain a valid bcrypt hash (\$2y\$ or \$2b\$)."
+        log_error "Traefik v3 only supports bcrypt. Please regenerate:"
+        log_error "  Install: sudo apt install apache2-utils"
+        log_error "  Generate: htpasswd -nB YOUR_USERNAME"
+        log_error "  Then update TRAEFIK_DASHBOARD_BASIC_AUTH in .env (escape \$ as \$\$)"
+        exit 1
+    fi
+
     auth_yaml_content="http:
   middlewares:
     traefik-auth:
@@ -128,7 +146,7 @@ if [[ -n "${auth_value}" ]] && [[ "${auth_value}" != "CHANGE_ME" ]]; then
           - \"${auth_value_expanded}\"
         removeHeader: true
 "
-    write_config "${PROJECT_ROOT}/configs/traefik/dynamic/auth.yaml" "${auth_yaml_content}" "600"
+    write_config "${PROJECT_ROOT}/configs/traefik/dynamic/auth.yaml" "${auth_yaml_content}" "644"
     log_success "Generated traefik-auth middleware config: configs/traefik/dynamic/auth.yaml"
 else
     log_warn "TRAEFIK_DASHBOARD_BASIC_AUTH not set — skipping auth.yaml generation"
