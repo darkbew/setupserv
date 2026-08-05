@@ -93,7 +93,8 @@ configure_sudoers() {
 # Passwordless sudo for specific operational commands (Least Privilege Principle).
 # ==============================================================================
 
-${deploy_user} ALL=(ALL:ALL) NOPASSWD: /usr/bin/docker, /usr/bin/systemctl, /usr/sbin/ufw, /usr/bin/apt-get, /usr/sbin/visudo, /usr/sbin/useradd, /usr/sbin/usermod, /usr/bin/chage, /bin/cp, /bin/mv, /bin/mkdir, /bin/chmod, /bin/chown, /usr/bin/cp, /usr/bin/mv, /usr/bin/mkdir, /usr/bin/chmod, /usr/bin/chown
+${deploy_user} ALL=(ALL:ALL) NOPASSWD: /usr/bin/systemctl, /usr/bin/chage, /bin/cp, /bin/mv, /bin/mkdir, /bin/chmod, /bin/chown, /usr/bin/cp, /usr/bin/mv, /usr/bin/mkdir, /usr/bin/chmod, /usr/bin/chown
+${deploy_user} ALL=(ALL:ALL) /usr/bin/docker, /usr/sbin/ufw, /usr/bin/apt-get, /usr/sbin/visudo, /usr/sbin/useradd, /usr/sbin/usermod
 SUDOERS_EOF
 )
 
