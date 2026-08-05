@@ -44,7 +44,7 @@ services:
     healthcheck:
       # FIX: Use native cloudflared command — image has no wget/curl (minimal/distroless)
       # Checks real Cloudflare Edge connectivity via built-in metrics/ready endpoint
-      test: ["CMD", "cloudflared", "tunnel", "ready"]
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "localhost:2000", "ready"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -48,6 +48,9 @@ entryPoints:
   # HTTP Entrypoint — Port 80 (Cloudflare Tunnel forwards traffic here as plain HTTP)
   web:
     address: ":80"
+    forwardedHeaders:
+      trustedIPs:
+        - "172.18.1.0/24"
 
   # HTTPS Entrypoint — Port 443 (Active in MODE=public)
   websecure:
